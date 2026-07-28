@@ -414,22 +414,22 @@ describe("Session-scoped RPC", async () => {
                 }
             );
 
-            await expect(
-                session.rpc.lsp.initialize({
-                    workingDirectory: optionsDirectory,
-                    gitRoot: initialDirectory,
-                    force: true,
-                })
-            ).resolves.toBeNull();
+            // `lsp.initialize` is declared `Promise<void>`, so its resolved value
+            // is not part of the contract — only that the call resolves.
+            await session.rpc.lsp.initialize({
+                workingDirectory: optionsDirectory,
+                gitRoot: initialDirectory,
+                force: true,
+            });
 
-            await expect(
-                session.rpc.telemetry.setFeatureOverrides({
-                    features: {
-                        rpc_session_state_feature: featureName,
-                        rpc_session_state_value: "enabled",
-                    },
-                })
-            ).resolves.toBeNull();
+            // `telemetry.setFeatureOverrides` is declared `Promise<void>`, so its
+            // resolved value is not part of the contract — only that it resolves.
+            await session.rpc.telemetry.setFeatureOverrides({
+                features: {
+                    rpc_session_state_feature: featureName,
+                    rpc_session_state_value: "enabled",
+                },
+            });
 
             await expect(session.rpc.tools.initializeAndValidate()).resolves.toBeDefined();
             expect(

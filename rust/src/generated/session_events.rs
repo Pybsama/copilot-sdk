@@ -233,6 +233,15 @@ pub enum SessionEventType {
     SessionToolsUpdated,
     #[serde(rename = "session.background_tasks_changed")]
     SessionBackgroundTasksChanged,
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(rename = "factory.run_updated")]
+    FactoryRunUpdated,
     #[serde(rename = "session.skills_loaded")]
     SessionSkillsLoaded,
     #[serde(rename = "session.custom_agents_updated")]
@@ -534,6 +543,15 @@ pub enum SessionEventData {
     SessionToolsUpdated(SessionToolsUpdatedData),
     #[serde(rename = "session.background_tasks_changed")]
     SessionBackgroundTasksChanged(SessionBackgroundTasksChangedData),
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(rename = "factory.run_updated")]
+    FactoryRunUpdated(FactoryRunUpdatedData),
     #[serde(rename = "session.skills_loaded")]
     SessionSkillsLoaded(SessionSkillsLoadedData),
     #[serde(rename = "session.custom_agents_updated")]
@@ -841,6 +859,9 @@ pub struct SessionScheduleCreatedData {
     /// Interval between ticks in milliseconds (relative-interval schedules)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interval_ms: Option<i64>,
+    /// Who created the schedule (`user` or `model`). Persisted so a resumed session keeps gating non-user schedules from firing skills that opted out of model invocation. Absent on entries created before this field existed; a missing origin fails closed (treated the same as a non-user origin), so such a schedule may not resolve a `disable-model-invocation` skill.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<ScheduleOrigin>,
     /// Prompt text that gets enqueued on every tick
     pub prompt: String,
     /// Whether the schedule re-arms after each tick (`/every`) or fires once (`/after`)
@@ -1492,7 +1513,7 @@ pub struct UserMessageData {
     /// Parent agent task ID for background telemetry correlated to this user turn
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_agent_task_id: Option<String>,
-    /// Origin of this message, used for timeline filtering (e.g., "skill-pdf" for skill-injected messages that should be hidden from the user)
+    /// Origin of this message, used for timeline filtering and attribution (e.g., `skill-pdf` for hidden skill injection or `agent-<agent-id>` for an inter-agent prompt)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     /// Normalized document MIME types that were sent natively instead of through tagged_files XML
@@ -1564,6 +1585,8 @@ pub struct AssistantReasoningData {
     pub content: String,
     /// Unique identifier for this reasoning block
     pub reasoning_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rte: Option<bool>,
 }
 
 /// Session event "assistant.reasoning_delta". Streaming reasoning delta for incremental extended thinking updates
@@ -1792,6 +1815,8 @@ pub struct AssistantMessageData {
     /// GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<RequestId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rte: Option<bool>,
     /// Neutral provider-tagged server-side tool-use payload (tool search, advisor) for verbatim round-tripping
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_tools: Option<AssistantMessageServerTools>,
@@ -1968,6 +1993,9 @@ pub struct AssistantUsageData {
     /// Number of input tokens consumed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<i64>,
+    /// Coarse classification of the interaction that produced this call, mirroring the session's per-request agent context (e.g. `conversation-agent`, `conversation-subagent`, `conversation-sampling`, `conversation-background`, `conversation-compaction`, `conversation-user`). Non-billing; lets consumers attribute a model call to a call class (e.g. sub-agent/sidekick) independently of the billing initiator. Absent when the runtime did not classify the request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interaction_type: Option<String>,
     /// Average inter-token latency in milliseconds. Only available for streaming requests
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inter_token_latency_ms: Option<f64>,
@@ -1994,6 +2022,8 @@ pub struct AssistantUsageData {
     /// Number of output tokens used for reasoning (e.g., chain-of-thought)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rte: Option<bool>,
     /// Copilot service request ID (x-copilot-service-request-id header) for CAPI log correlation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_request_id: Option<String>,
@@ -2082,6 +2112,8 @@ pub struct ModelCallFailureData {
     /// Content-free structural summary of the failing request. Contains only counts and shape flags (no prompt content), so it is safe for unrestricted telemetry. Populated only for client-error (4xx) failures.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_fingerprint: Option<ModelCallFailureRequestFingerprint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rte: Option<bool>,
     /// Copilot service request ID (x-copilot-service-request-id header) for CAPI log correlation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_request_id: Option<String>,
@@ -2196,6 +2228,8 @@ pub struct ToolExecutionStartData {
     #[deprecated]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rte: Option<bool>,
     /// Shell-tool path hints derived from the command at start time for shell tools (bash/powershell/local_shell). Produced by the same shell-aware extractor as PermissionRequestShell.possiblePaths, so it is present even when the command is auto-approved and no permission request fires. Absent for non-shell tools.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shell_tool_info: Option<ToolExecutionStartShellToolInfo>,
@@ -2636,6 +2670,8 @@ pub struct ToolExecutionCompleteData {
     /// Tool execution result on success
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<ToolExecutionCompleteResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rte: Option<bool>,
     /// Whether this tool execution ran inside a sandbox container
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandboxed: Option<bool>,
@@ -2877,6 +2913,9 @@ pub struct SystemMessageMetadata {
 pub struct SystemMessageData {
     /// The system or developer prompt text sent as model input
     pub content: String,
+    /// Logical interaction identifier for the model run receiving this prompt
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interaction_id: Option<String>,
     /// Metadata about the prompt template and its construction
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<SystemMessageMetadata>,
@@ -4229,6 +4268,22 @@ pub struct SessionToolsUpdatedData {
 #[serde(rename_all = "camelCase")]
 pub struct SessionBackgroundTasksChangedData {}
 
+/// Session event "factory.run_updated". Ephemeral invalidation signal for a changed factory run.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FactoryRunUpdatedData {
+    /// Monotonic revision now available for the run.
+    pub revision: i64,
+    pub run_id: String,
+}
+
 /// A single resolved skill in `session.skills_loaded`, including source, invocability, enabled state, path, and argument hint.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -4697,6 +4752,21 @@ pub enum Verbosity {
     /// A more detailed response was requested.
     #[serde(rename = "high")]
     High,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Who created the schedule: `user` (an explicit user action such as `/every` or `/after`) or `model` (the agent via the `manage_schedule` tool). Gates whether a scheduled skill that opted out of model invocation may fire: only user-created schedules may.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScheduleOrigin {
+    /// The schedule was created by an explicit user action, such as `/every` or `/after`.
+    #[serde(rename = "user")]
+    User,
+    /// The schedule was created by the agent via the `manage_schedule` tool.
+    #[serde(rename = "model")]
+    Model,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

@@ -52,6 +52,7 @@ namespace GitHub.Copilot;
 [JsonDerivedType(typeof(ExitPlanModeRequestedEvent), "exit_plan_mode.requested")]
 [JsonDerivedType(typeof(ExternalToolCompletedEvent), "external_tool.completed")]
 [JsonDerivedType(typeof(ExternalToolRequestedEvent), "external_tool.requested")]
+[JsonDerivedType(typeof(FactoryRunUpdatedEvent), "factory.run_updated")]
 [JsonDerivedType(typeof(HookEndEvent), "hook.end")]
 [JsonDerivedType(typeof(HookProgressEvent), "hook.progress")]
 [JsonDerivedType(typeof(HookStartEvent), "hook.start")]
@@ -1444,6 +1445,20 @@ public sealed partial class SessionBackgroundTasksChangedEvent : SessionEvent
     public required SessionBackgroundTasksChangedData Data { get; set; }
 }
 
+/// <summary>Ephemeral invalidation signal for a changed factory run.</summary>
+/// <remarks>Represents the <c>factory.run_updated</c> event.</remarks>
+[Experimental(Diagnostics.Experimental)]
+public sealed partial class FactoryRunUpdatedEvent : SessionEvent
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Type => "factory.run_updated";
+
+    /// <summary>The <c>factory.run_updated</c> event payload.</summary>
+    [JsonPropertyName("data")]
+    public required FactoryRunUpdatedData Data { get; set; }
+}
+
 /// <summary>Payload of `session.skills_loaded` listing resolved skill metadata.</summary>
 /// <remarks>Represents the <c>session.skills_loaded</c> event.</remarks>
 public sealed partial class SessionSkillsLoadedEvent : SessionEvent
@@ -1903,6 +1918,11 @@ public sealed partial class SessionScheduleCreatedData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("intervalMs")]
     public TimeSpan? Interval { get; set; }
+
+    /// <summary>Who created the schedule (`user` or `model`). Persisted so a resumed session keeps gating non-user schedules from firing skills that opted out of model invocation. Absent on entries created before this field existed; a missing origin fails closed (treated the same as a non-user origin), so such a schedule may not resolve a `disable-model-invocation` skill.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("origin")]
+    public ScheduleOrigin? Origin { get; set; }
 
     /// <summary>Prompt text that gets enqueued on every tick.</summary>
     [JsonPropertyName("prompt")]
@@ -2557,7 +2577,7 @@ public sealed partial class UserMessageData
     [JsonPropertyName("parentAgentTaskId")]
     public string? ParentAgentTaskId { get; set; }
 
-    /// <summary>Origin of this message, used for timeline filtering (e.g., "skill-pdf" for skill-injected messages that should be hidden from the user).</summary>
+    /// <summary>Origin of this message, used for timeline filtering and attribution (e.g., `skill-pdf` for hidden skill injection or `agent-&lt;agent-id&gt;` for an inter-agent prompt).</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("source")]
     public string? Source { get; set; }
@@ -2648,6 +2668,11 @@ public sealed partial class AssistantReasoningData
     /// <summary>Unique identifier for this reasoning block.</summary>
     [JsonPropertyName("reasoningId")]
     public required string ReasoningId { get; set; }
+
+    /// <summary>Gets or sets the <c>rte</c> value.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("rte")]
+    public bool? Rte { get; set; }
 }
 
 /// <summary>Streaming reasoning delta for incremental extended thinking updates.</summary>
@@ -2772,6 +2797,11 @@ public sealed partial class AssistantMessageData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("requestId")]
     public string? RequestId { get; set; }
+
+    /// <summary>Gets or sets the <c>rte</c> value.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("rte")]
+    public bool? Rte { get; set; }
 
     /// <summary>Neutral provider-tagged server-side tool-use payload (tool search, advisor) for verbatim round-tripping.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -2915,6 +2945,11 @@ public sealed partial class AssistantUsageData
     [JsonPropertyName("inputTokens")]
     public long? InputTokens { get; set; }
 
+    /// <summary>Coarse classification of the interaction that produced this call, mirroring the session's per-request agent context (e.g. `conversation-agent`, `conversation-subagent`, `conversation-sampling`, `conversation-background`, `conversation-compaction`, `conversation-user`). Non-billing; lets consumers attribute a model call to a call class (e.g. sub-agent/sidekick) independently of the billing initiator. Absent when the runtime did not classify the request.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("interactionType")]
+    public string? InteractionType { get; set; }
+
     /// <summary>Average inter-token latency in milliseconds. Only available for streaming requests.</summary>
     [JsonConverter(typeof(MillisecondsTimeSpanConverter))]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -2959,6 +2994,11 @@ public sealed partial class AssistantUsageData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("reasoningTokens")]
     public long? ReasoningTokens { get; set; }
+
+    /// <summary>Gets or sets the <c>rte</c> value.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("rte")]
+    public bool? Rte { get; set; }
 
     /// <summary>Copilot service request ID (x-copilot-service-request-id header) for CAPI log correlation.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -3067,6 +3107,11 @@ public sealed partial class ModelCallFailureData
     [JsonPropertyName("requestFingerprint")]
     public ModelCallFailureRequestFingerprint? RequestFingerprint { get; set; }
 
+    /// <summary>Gets or sets the <c>rte</c> value.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("rte")]
+    public bool? Rte { get; set; }
+
     /// <summary>Copilot service request ID (x-copilot-service-request-id header) for CAPI log correlation.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("serviceRequestId")]
@@ -3162,6 +3207,11 @@ public sealed partial class ToolExecutionStartData
     [JsonPropertyName("parentToolCallId")]
     public string? ParentToolCallId { get; set; }
 
+    /// <summary>Gets or sets the <c>rte</c> value.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("rte")]
+    public bool? Rte { get; set; }
+
     /// <summary>Shell-tool path hints derived from the command at start time for shell tools (bash/powershell/local_shell). Produced by the same shell-aware extractor as PermissionRequestShell.possiblePaths, so it is present even when the command is auto-approved and no permission request fires. Absent for non-shell tools.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("shellToolInfo")]
@@ -3252,6 +3302,11 @@ public sealed partial class ToolExecutionCompleteData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("result")]
     public ToolExecutionCompleteResult? Result { get; set; }
+
+    /// <summary>Gets or sets the <c>rte</c> value.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("rte")]
+    public bool? Rte { get; set; }
 
     /// <summary>Whether this tool execution ran inside a sandbox container.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -3566,6 +3621,11 @@ public sealed partial class SystemMessageData
     /// <summary>The system or developer prompt text sent as model input.</summary>
     [JsonPropertyName("content")]
     public required string Content { get; set; }
+
+    /// <summary>Logical interaction identifier for the model run receiving this prompt.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("interactionId")]
+    public string? InteractionId { get; set; }
 
     /// <summary>Metadata about the prompt template and its construction.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -4191,6 +4251,19 @@ public sealed partial class SessionToolsUpdatedData
 /// <summary>Empty payload for `session.background_tasks_changed`, indicating background task state changed.</summary>
 public sealed partial class SessionBackgroundTasksChangedData
 {
+}
+
+/// <summary>Ephemeral invalidation signal for a changed factory run.</summary>
+[Experimental(Diagnostics.Experimental)]
+public sealed partial class FactoryRunUpdatedData
+{
+    /// <summary>Monotonic revision now available for the run.</summary>
+    [JsonPropertyName("revision")]
+    public required long Revision { get; set; }
+
+    /// <summary>Gets or sets the <c>runId</c> value.</summary>
+    [JsonPropertyName("runId")]
+    public required string RunId { get; set; }
 }
 
 /// <summary>Payload of `session.skills_loaded` listing resolved skill metadata.</summary>
@@ -8412,6 +8485,67 @@ public readonly struct Verbosity : IEquatable<Verbosity>
     }
 }
 
+/// <summary>Who created the schedule: `user` (an explicit user action such as `/every` or `/after`) or `model` (the agent via the `manage_schedule` tool). Gates whether a scheduled skill that opted out of model invocation may fire: only user-created schedules may.</summary>
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct ScheduleOrigin : IEquatable<ScheduleOrigin>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="ScheduleOrigin"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="ScheduleOrigin"/>.</param>
+    [JsonConstructor]
+    public ScheduleOrigin(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="ScheduleOrigin"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>The schedule was created by an explicit user action, such as `/every` or `/after`.</summary>
+    public static ScheduleOrigin User { get; } = new("user");
+
+    /// <summary>The schedule was created by the agent via the `manage_schedule` tool.</summary>
+    public static ScheduleOrigin Model { get; } = new("model");
+
+    /// <summary>Returns a value indicating whether two <see cref="ScheduleOrigin"/> instances are equivalent.</summary>
+    public static bool operator ==(ScheduleOrigin left, ScheduleOrigin right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="ScheduleOrigin"/> instances are not equivalent.</summary>
+    public static bool operator !=(ScheduleOrigin left, ScheduleOrigin right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is ScheduleOrigin other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(ScheduleOrigin other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{ScheduleOrigin}"/> for serializing <see cref="ScheduleOrigin"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<ScheduleOrigin>
+    {
+        /// <inheritdoc />
+        public override ScheduleOrigin Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, ScheduleOrigin value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(ScheduleOrigin));
+        }
+    }
+}
+
 /// <summary>The type of operation performed on the autopilot objective state file.</summary>
 [JsonConverter(typeof(Converter))]
 [DebuggerDisplay("{Value,nq}")]
@@ -11908,6 +12042,8 @@ public readonly struct ExtensionsLoadedExtensionStatus : IEquatable<ExtensionsLo
 [JsonSerializable(typeof(ExternalToolCompletedEvent))]
 [JsonSerializable(typeof(ExternalToolRequestedData))]
 [JsonSerializable(typeof(ExternalToolRequestedEvent))]
+[JsonSerializable(typeof(FactoryRunUpdatedData))]
+[JsonSerializable(typeof(FactoryRunUpdatedEvent))]
 [JsonSerializable(typeof(GitHubRepoRef))]
 [JsonSerializable(typeof(HandoffRepository))]
 [JsonSerializable(typeof(HeaderEntry))]
