@@ -309,6 +309,24 @@ public abstract class SessionFsProvider : ISessionFsHandler
         }
     }
 
+    Task<SessionFsSqliteTransactionResult> ISessionFsHandler.SqliteTransactionAsync(SessionFsSqliteTransactionRequest request, CancellationToken cancellationToken)
+    {
+        // This SDK's provider interface exposes no atomic-transaction hook, so
+        // the batch is refused outright rather than applied non-atomically.
+        var message = this is ISessionFsSqliteProvider
+            ? "Atomic SQLite transactions are not supported by this SessionFs provider"
+            : "SQLite is not supported by this SessionFs provider";
+
+        return Task.FromResult(new SessionFsSqliteTransactionResult
+        {
+            Error = new SessionFsSqliteTransactionError
+            {
+                ErrorClass = SessionFsSqliteTransactionErrorClass.Fatal,
+                Message = message,
+            },
+        });
+    }
+
     async Task<SessionFsSqliteExistsResult> ISessionFsHandler.SqliteExistsAsync(SessionFsSqliteExistsRequest request, CancellationToken cancellationToken)
     {
         if (this is not ISessionFsSqliteProvider sqliteProvider)

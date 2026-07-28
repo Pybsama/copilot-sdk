@@ -1363,11 +1363,14 @@ type ConnectRemoteSessionParams struct {
 type ConnectRequest struct {
 	// Opt this connection in to GitHub telemetry forwarding for its lifetime. When set, the
 	// runtime forwards every internal telemetry event it emits — across all sessions, plus
-	// sessionless events — to this connection over the `gitHubTelemetry.event` notification, in
-	// addition to the runtime's normal GitHub/CTS emission (dual-write). Intended for
-	// first-party hosts that re-emit the events into their own telemetry stores. Both
-	// unrestricted and restricted events are forwarded, each tagged with a `restricted`
-	// discriminator; a backstop drops restricted events when restricted telemetry is disabled.
+	// sessionless events — to this connection over the `gitHubTelemetry.event` notification.
+	// Regular events are also written to the runtime's normal GitHub/CTS path (dual-write);
+	// host-only compatibility events are forward-only and intentionally skip that path.
+	// Intended for first-party hosts that re-emit the events into their own telemetry stores.
+	// Both unrestricted and restricted events are forwarded, each tagged with a `restricted`
+	// discriminator; a backstop drops restricted events when restricted telemetry is disabled —
+	// using the process-global gate for ordinary events and an explicit session-scoped decision
+	// for host-only events.
 	EnableGitHubTelemetryForwarding *bool `json:"enableGitHubTelemetryForwarding,omitempty"`
 	// Connection token; required when the server was started with COPILOT_CONNECTION_TOKEN
 	Token *string `json:"token,omitempty"`
@@ -2246,6 +2249,8 @@ type FactoryAgentOptions struct {
 // Experimental: FactoryAgentRequest is part of an experimental API and may change or be
 // removed.
 type FactoryAgentRequest struct {
+	// Opaque token identifying the current factory execution attempt.
+	ExecutionToken string `json:"executionToken"`
 	// Factory run identifier that owns the subagent.
 	FactoryRunID string `json:"factoryRunId"`
 	// Subagent execution options.
@@ -2262,6 +2267,25 @@ type FactoryAgentResult struct {
 	Result any `json:"result,omitempty"`
 }
 
+// Prompt-safe durable identity and live status for a direct factory agent.
+// Experimental: FactoryAgentSummary is part of an experimental API and may change or be
+// removed.
+type FactoryAgentSummary struct {
+	ActiveMs       int64   `json:"activeMs"`
+	Activity       *string `json:"activity,omitempty"`
+	AgentID        string  `json:"agentId"`
+	AgentType      string  `json:"agentType"`
+	CompletedAt    *int64  `json:"completedAt,omitempty"`
+	Label          string  `json:"label"`
+	PhaseID        *string `json:"phaseId"`
+	RequestedModel *string `json:"requestedModel,omitempty"`
+	ResolvedModel  *string `json:"resolvedModel,omitempty"`
+	RunID          string  `json:"runId"`
+	StartedAt      *int64  `json:"startedAt,omitempty"`
+	Status         string  `json:"status"`
+	ToolCallID     string  `json:"toolCallId"`
+}
+
 // Parameters for cancelling a factory run.
 // Experimental: FactoryCancelRequest is part of an experimental API and may change or be
 // removed.
@@ -2270,12 +2294,32 @@ type FactoryCancelRequest struct {
 	RunID string `json:"runId"`
 }
 
+// Current factory phase identity.
+// Experimental: FactoryCurrentPhase is part of an experimental API and may change or be
+// removed.
+type FactoryCurrentPhase struct {
+	ID      string `json:"id"`
+	Ordinal *int64 `json:"ordinal"`
+}
+
+// Declared or approved factory resource ceilings.
+// Experimental: FactoryDeclaredLimits is part of an experimental API and may change or be
+// removed.
+type FactoryDeclaredLimits struct {
+	MaxAiCredits           *float64 `json:"maxAiCredits,omitempty"`
+	MaxConcurrentSubagents *int64   `json:"maxConcurrentSubagents,omitempty"`
+	MaxTotalSubagents      *int64   `json:"maxTotalSubagents,omitempty"`
+	TimeoutSeconds         *float64 `json:"timeoutSeconds,omitempty"`
+}
+
 // Parameters sent to the owning extension to execute a factory closure.
 // Experimental: FactoryExecuteRequest is part of an experimental API and may change or be
 // removed.
 type FactoryExecuteRequest struct {
 	// Factory input value.
 	Args any `json:"args"`
+	// Opaque token identifying this factory execution attempt.
+	ExecutionToken string `json:"executionToken"`
 	// Registered factory name.
 	Name string `json:"name"`
 	// Factory run identifier.
@@ -2289,7 +2333,23 @@ type FactoryExecuteRequest struct {
 // removed.
 type FactoryExecuteResult struct {
 	// Factory result value.
-	Result any `json:"result"`
+	Result any `json:"result,omitempty"`
+}
+
+// Parameters for paging factory progress.
+// Experimental: FactoryGetRunProgressRequest is part of an experimental API and may change
+// or be removed.
+type FactoryGetRunProgressRequest struct {
+	// Exclusive forward cursor.
+	AfterSeq *int64 `json:"afterSeq,omitempty"`
+	// Exclusive backward cursor.
+	BeforeSeq *int64 `json:"beforeSeq,omitempty"`
+	// Maximum records to return. Defaults to 200 and is capped at 500.
+	Limit *int32 `json:"limit,omitempty"`
+	// Optional phase identifier used to scope records and cursors.
+	PhaseID *string `json:"phaseId,omitempty"`
+	// Factory run identifier.
+	RunID string `json:"runId"`
 }
 
 // Parameters for retrieving a factory run.
@@ -2304,6 +2364,8 @@ type FactoryGetRunRequest struct {
 // Experimental: FactoryJournalGetRequest is part of an experimental API and may change or
 // be removed.
 type FactoryJournalGetRequest struct {
+	// Opaque token identifying the current factory execution attempt.
+	ExecutionToken string `json:"executionToken"`
 	// Namespaced journal key.
 	Key string `json:"key"`
 	// Factory run identifier.
@@ -2324,12 +2386,27 @@ type FactoryJournalGetResult struct {
 // Experimental: FactoryJournalPutRequest is part of an experimental API and may change or
 // be removed.
 type FactoryJournalPutRequest struct {
+	// Opaque token identifying the current factory execution attempt.
+	ExecutionToken string `json:"executionToken"`
 	// Namespaced journal key.
 	Key string `json:"key"`
 	// JSON result to memoize.
 	ResultJSON any `json:"resultJson"`
 	// Factory run identifier.
 	RunID string `json:"runId"`
+}
+
+// Empty parameters for listing factory runs.
+// Experimental: FactoryListRunsRequest is part of an experimental API and may change or be
+// removed.
+type FactoryListRunsRequest struct {
+}
+
+// Factory runs in durable creation order.
+// Experimental: FactoryListRunsResult is part of an experimental API and may change or be
+// removed.
+type FactoryListRunsResult struct {
+	Runs []FactoryRunSummary `json:"runs"`
 }
 
 // One ordered factory progress line.
@@ -2347,10 +2424,119 @@ type FactoryLogLine struct {
 // Experimental: FactoryLogRequest is part of an experimental API and may change or be
 // removed.
 type FactoryLogRequest struct {
+	// Opaque token identifying the current factory execution attempt.
+	ExecutionToken string `json:"executionToken"`
 	// Ordered progress lines to append.
 	Lines []FactoryLogLine `json:"lines"`
 	// Factory run identifier.
 	RunID string `json:"runId"`
+}
+
+// Durable lifecycle and timing for one factory phase.
+// Experimental: FactoryPhaseObservation is part of an experimental API and may change or be
+// removed.
+type FactoryPhaseObservation struct {
+	AccumulatedActiveMs   int64              `json:"accumulatedActiveMs"`
+	CompletedAt           *int64             `json:"completedAt,omitempty"`
+	CurrentActiveMs       int64              `json:"currentActiveMs"`
+	Detail                *string            `json:"detail,omitempty"`
+	EntryCount            int64              `json:"entryCount"`
+	ID                    string             `json:"id"`
+	LastEnteredRunAttempt int64              `json:"lastEnteredRunAttempt"`
+	LiveAgentCount        int64              `json:"liveAgentCount"`
+	Ordinal               *int64             `json:"ordinal"`
+	StartedAt             *int64             `json:"startedAt,omitempty"`
+	Status                FactoryPhaseStatus `json:"status"`
+	Title                 string             `json:"title"`
+	TotalAgentCount       int64              `json:"totalAgentCount"`
+}
+
+// One durable factory progress record.
+// Experimental: FactoryProgressLine is part of an experimental API and may change or be
+// removed.
+type FactoryProgressLine struct {
+	// Resume attempt that emitted this record.
+	Attempt int64 `json:"attempt"`
+	// Progress record kind.
+	Kind FactoryLogLineKind `json:"kind"`
+	// Phase active when the record was emitted, or null before any phase.
+	PhaseID *string `json:"phaseId"`
+	// Epoch milliseconds when the record was persisted.
+	RecordedAt int64 `json:"recordedAt"`
+	// Global monotonic sequence number within the run.
+	Seq int64 `json:"seq"`
+	// Prompt-safe progress text.
+	Text string `json:"text"`
+}
+
+// A bidirectional page of factory progress.
+// Experimental: FactoryProgressPage is part of an experimental API and may change or be
+// removed.
+type FactoryProgressPage struct {
+	HasMoreNewer bool                  `json:"hasMoreNewer"`
+	HasMoreOlder bool                  `json:"hasMoreOlder"`
+	NewestSeq    *int64                `json:"newestSeq"`
+	OldestSeq    *int64                `json:"oldestSeq"`
+	Records      []FactoryProgressLine `json:"records"`
+	// Run revision reflected by this page.
+	Revision int64 `json:"revision"`
+}
+
+// Parameters for resuming a factory run from its persisted identity.
+// Experimental: FactoryResumeRequest is part of an experimental API and may change or be
+// removed.
+type FactoryResumeRequest struct {
+	// Optional per-invocation resource ceiling overrides.
+	Limits *FactoryRunLimits `json:"limits,omitempty"`
+	// Factory run identifier.
+	RunID string `json:"runId"`
+}
+
+// Resolved persisted factory identity and resumed run envelope.
+// Experimental: FactoryResumeResult is part of an experimental API and may change or be
+// removed.
+type FactoryResumeResult struct {
+	// Persisted factory name resolved for the resumed run.
+	FactoryName string `json:"factoryName"`
+	// Terminal resumed run envelope.
+	Run FactoryRunResult `json:"run"`
+}
+
+// Durable factory resource consumption.
+// Experimental: FactoryRunConsumed is part of an experimental API and may change or be
+// removed.
+type FactoryRunConsumed struct {
+	ActiveMs  int64 `json:"activeMs"`
+	NanoAiu   int64 `json:"nanoAiu"`
+	Subagents int64 `json:"subagents"`
+}
+
+// Full factory run observability detail.
+// Experimental: FactoryRunDetail is part of an experimental API and may change or be
+// removed.
+type FactoryRunDetail struct {
+	ActiveSegmentStartedAt *int64                    `json:"activeSegmentStartedAt"`
+	Agents                 []FactoryAgentSummary     `json:"agents"`
+	Approved               *FactoryDeclaredLimits    `json:"approved"`
+	CompletedAt            *int64                    `json:"completedAt"`
+	Consumed               FactoryRunConsumed        `json:"consumed"`
+	CreatedAt              int64                     `json:"createdAt"`
+	CurrentPhase           *FactoryCurrentPhase      `json:"currentPhase"`
+	DeclaredLimits         FactoryDeclaredLimits     `json:"declaredLimits"`
+	DeclaredPhaseCount     int64                     `json:"declaredPhaseCount"`
+	Description            string                    `json:"description"`
+	FactoryName            string                    `json:"factoryName"`
+	LiveAgentCount         int64                     `json:"liveAgentCount"`
+	ObservedAt             int64                     `json:"observedAt"`
+	Phases                 []FactoryPhaseObservation `json:"phases"`
+	Progress               FactoryProgressPage       `json:"progress"`
+	Revision               int64                     `json:"revision"`
+	RunID                  string                    `json:"runId"`
+	StartedAt              *int64                    `json:"startedAt"`
+	Status                 FactoryRunStatus          `json:"status"`
+	Terminal               *FactoryRunTerminal       `json:"terminal"`
+	TotalSpawnedAgentCount int64                     `json:"totalSpawnedAgentCount"`
+	UpdatedAt              int64                     `json:"updatedAt"`
 }
 
 // Machine-readable factory run failure.
@@ -2369,6 +2555,20 @@ type RawFactoryRunFailureData struct {
 func (RawFactoryRunFailureData) factoryRunFailure() {}
 func (r RawFactoryRunFailureData) Type() FactoryRunFailureType {
 	return r.Discriminator
+}
+
+type FactoryRunFailureFactoryDurableFailure struct {
+	// Stable failure code.
+	Code string `json:"code"`
+	// Execution-critical durable operation that failed.
+	Operation FactoryDurableOperation `json:"operation"`
+	// Factory run identifier.
+	RunID string `json:"runId"`
+}
+
+func (FactoryRunFailureFactoryDurableFailure) factoryRunFailure() {}
+func (FactoryRunFailureFactoryDurableFailure) Type() FactoryRunFailureType {
+	return FactoryRunFailureTypeFactoryDurableFailure
 }
 
 type FactoryRunFailureFactoryLimitReached struct {
@@ -2401,12 +2601,17 @@ func (FactoryRunFailureFactoryResumeDeclined) Type() FactoryRunFailureType {
 // Experimental: FactoryRunLimits is part of an experimental API and may change or be
 // removed.
 type FactoryRunLimits struct {
+	// Maximum AI credits consumed by factory subagents and their descendants. The post-paid
+	// ceiling is soft: parallel turns can settle beyond it before the run stops.
+	MaxAiCredits *float64 `json:"maxAiCredits,omitempty"`
 	// Maximum number of factory subagents that may run concurrently.
 	MaxConcurrentSubagents *int64 `json:"maxConcurrentSubagents,omitempty"`
 	// Maximum total number of factory subagents that may be admitted.
 	MaxTotalSubagents *int64 `json:"maxTotalSubagents,omitempty"`
-	// Factory active-run timeout in milliseconds.
-	Timeout *float64 `json:"timeout,omitempty"`
+	// Maximum accumulated active-execution time in seconds. Active execution includes the
+	// entire extension body, subprocess waits, queued-agent waits, and sleeps; time between
+	// resumed attempts is not counted.
+	TimeoutSeconds *float64 `json:"timeoutSeconds,omitempty"`
 }
 
 // Parameters for invoking a registered factory.
@@ -2439,6 +2644,41 @@ type FactoryRunResult struct {
 	Snapshot any `json:"snapshot,omitempty"`
 	// Current or terminal factory run status.
 	Status FactoryRunStatus `json:"status"`
+}
+
+// Durable factory run summary with read-time live overlays.
+// Experimental: FactoryRunSummary is part of an experimental API and may change or be
+// removed.
+type FactoryRunSummary struct {
+	ActiveSegmentStartedAt *int64                 `json:"activeSegmentStartedAt"`
+	Approved               *FactoryDeclaredLimits `json:"approved"`
+	CompletedAt            *int64                 `json:"completedAt"`
+	Consumed               FactoryRunConsumed     `json:"consumed"`
+	CreatedAt              int64                  `json:"createdAt"`
+	CurrentPhase           *FactoryCurrentPhase   `json:"currentPhase"`
+	DeclaredLimits         FactoryDeclaredLimits  `json:"declaredLimits"`
+	DeclaredPhaseCount     int64                  `json:"declaredPhaseCount"`
+	Description            string                 `json:"description"`
+	FactoryName            string                 `json:"factoryName"`
+	LiveAgentCount         int64                  `json:"liveAgentCount"`
+	ObservedAt             int64                  `json:"observedAt"`
+	Revision               int64                  `json:"revision"`
+	RunID                  string                 `json:"runId"`
+	StartedAt              *int64                 `json:"startedAt"`
+	Status                 FactoryRunStatus       `json:"status"`
+	Terminal               *FactoryRunTerminal    `json:"terminal"`
+	TotalSpawnedAgentCount int64                  `json:"totalSpawnedAgentCount"`
+	UpdatedAt              int64                  `json:"updatedAt"`
+}
+
+// Prompt-safe terminal factory outcome.
+// Experimental: FactoryRunTerminal is part of an experimental API and may change or be
+// removed.
+type FactoryRunTerminal struct {
+	Error         *string           `json:"error,omitempty"`
+	Failure       FactoryRunFailure `json:"failure,omitempty"`
+	Reason        *string           `json:"reason,omitempty"`
+	ResultPreview *string           `json:"resultPreview,omitempty"`
 }
 
 // Content filtering mode to apply to all tools, or a map of tool name to content filtering
@@ -2759,14 +2999,16 @@ type InstalledPluginSource struct {
 	String                      *string
 }
 
-// Source descriptor for a direct GitHub plugin install, with `owner/repo`, optional ref,
-// and optional subpath.
+// Source descriptor for a direct GitHub plugin install, with `owner/repo`, optional ref or
+// full commit SHA, and optional subpath.
 // Experimental: InstalledPluginSourceGitHub is part of an experimental API and may change
 // or be removed.
 type InstalledPluginSourceGitHub struct {
 	Path *string `json:"path,omitempty"`
 	Ref  *string `json:"ref,omitempty"`
 	Repo string  `json:"repo"`
+	// Optional full 40-character hexadecimal commit SHA.
+	Sha *string `json:"sha,omitempty"`
 	// Constant value. Always "github".
 	Source InstalledPluginSourceGitHubSource `json:"source"`
 }
@@ -2780,13 +3022,15 @@ type InstalledPluginSourceLocal struct {
 	Source InstalledPluginSourceLocalSource `json:"source"`
 }
 
-// Source descriptor for a direct URL plugin install, with URL, optional ref, and optional
-// subpath.
+// Source descriptor for a direct URL plugin install, with URL, optional ref or full commit
+// SHA, and optional subpath.
 // Experimental: InstalledPluginSourceURL is part of an experimental API and may change or
 // be removed.
 type InstalledPluginSourceURL struct {
 	Path *string `json:"path,omitempty"`
 	Ref  *string `json:"ref,omitempty"`
+	// Optional full 40-character hexadecimal commit SHA.
+	Sha *string `json:"sha,omitempty"`
 	// Constant value. Always "url".
 	Source InstalledPluginSourceURLSource `json:"source"`
 	URL    string                         `json:"url"`
@@ -2881,6 +3125,25 @@ type InstructionSource struct {
 	SourcePath string `json:"sourcePath"`
 	// Category of instruction source — used for merge logic
 	Type InstructionSourceType `json:"type"`
+}
+
+// Parameters for interrupting the main agent turn.
+// Experimental: InterruptMainTurnRequest is part of an experimental API and may change or
+// be removed.
+type InterruptMainTurnRequest struct {
+	// When true, the user's queued prompts are preserved and run as the next turn once the
+	// interrupted turn unwinds; when false (the default), the queue is cleared like a plain
+	// abort.
+	FlushQueued *bool `json:"flushQueued,omitempty"`
+}
+
+// Result of interrupting the main agent turn.
+// Experimental: InterruptMainTurnResult is part of an experimental API and may change or be
+// removed.
+type InterruptMainTurnResult struct {
+	// Whether an in-flight main agent turn was interrupted. False when the main loop was not
+	// processing.
+	Interrupted bool `json:"interrupted"`
 }
 
 // HTTP headers as a map from lowercased header name to a list of values. Multi-valued
@@ -3803,6 +4066,23 @@ type MCPOauthPendingRequestResponseToken struct {
 func (MCPOauthPendingRequestResponseToken) mcpOauthPendingRequestResponse() {}
 func (MCPOauthPendingRequestResponseToken) Kind() MCPOauthPendingRequestResponseKind {
 	return MCPOauthPendingRequestResponseKindToken
+}
+
+// Pending MCP OAuth request id to respond to.
+// Experimental: MCPOauthRespondRequest is part of an experimental API and may change or be
+// removed.
+type MCPOauthRespondRequest struct {
+	// OAuth request identifier from the mcp.oauth_required event
+	RequestID string `json:"requestId"`
+}
+
+// Indicates whether the pending MCP OAuth response was accepted.
+// Experimental: MCPOauthRespondResult is part of an experimental API and may change or be
+// removed.
+type MCPOauthRespondResult struct {
+	// Whether the response was accepted. False if the request was unknown, timed out, or
+	// already resolved.
+	Success bool `json:"success"`
 }
 
 // Registration parameters for an external MCP client.
@@ -6812,6 +7092,30 @@ type PushGitHubRepoRef struct {
 	Owner string `json:"owner"`
 }
 
+// Inputs for starting a deferred-idle drain.
+// Experimental: QueueBeginDeferredIdleDrainRequest is part of an experimental API and may
+// change or be removed.
+type QueueBeginDeferredIdleDrainRequest struct {
+	// Whether the host still has active background work.
+	ActiveBackgroundWork bool `json:"activeBackgroundWork"`
+}
+
+// Whether a deferred-idle drain should run.
+// Experimental: QueueBeginDeferredIdleDrainResult is part of an experimental API and may
+// change or be removed.
+type QueueBeginDeferredIdleDrainResult struct {
+	// True when the host should run finishDeferredIdleDrain asynchronously.
+	ShouldDrain bool `json:"shouldDrain"`
+}
+
+// Internal filter for consuming queued system notifications.
+// Experimental: QueueConsumeSystemNotificationsRequest is part of an experimental API and
+// may change or be removed.
+type QueueConsumeSystemNotificationsRequest struct {
+	// Opaque runtime-owned filter object.
+	Filter any `json:"filter"`
+}
+
 // Result of the queued command execution.
 // Experimental: QueuedCommandResult is part of an experimental API and may change or be
 // removed.
@@ -6847,6 +7151,50 @@ func (QueuedCommandNotHandled) Handled() bool {
 	return false
 }
 
+// Inputs for marking session.idle deferred in native state.
+// Experimental: QueueDeferSessionIdleRequest is part of an experimental API and may change
+// or be removed.
+type QueueDeferSessionIdleRequest struct {
+	// Whether the deferred idle was caused by an aborted foreground turn.
+	Aborted bool `json:"aborted"`
+}
+
+// Result of enqueueing the resume-pending wake item.
+// Experimental: QueueEnqueueResumePendingResult is part of an experimental API and may
+// change or be removed.
+type QueueEnqueueResumePendingResult struct {
+	// True when a wake item was newly queued.
+	Queued bool `json:"queued"`
+}
+
+// Inputs for completing a deferred-idle drain.
+// Experimental: QueueFinishDeferredIdleDrainRequest is part of an experimental API and may
+// change or be removed.
+type QueueFinishDeferredIdleDrainRequest struct {
+	// Whether the host still has active background work.
+	ActiveBackgroundWork bool `json:"activeBackgroundWork"`
+	// Whether native queued work remains.
+	HasPending bool `json:"hasPending"`
+}
+
+// Action selected by the native deferred-idle drain.
+// Experimental: QueueFinishDeferredIdleDrainResult is part of an experimental API and may
+// change or be removed.
+type QueueFinishDeferredIdleDrainResult struct {
+	// Whether the deferred idle was caused by an aborted foreground turn.
+	Aborted bool `json:"aborted"`
+	// One of none, processQueue, or emitSessionIdle.
+	Action string `json:"action"`
+}
+
+// Whether the native queue has pending work.
+// Experimental: QueueHasPendingResult is part of an experimental API and may change or be
+// removed.
+type QueueHasPendingResult struct {
+	// True when queued or immediate native work is pending.
+	HasPending bool `json:"hasPending"`
+}
+
 // User-facing pending queue entry, with kind and display text for a queued message, slash
 // command, or model change.
 // Experimental: QueuePendingItems is part of an experimental API and may change or be
@@ -6877,6 +7225,20 @@ type QueueRemoveMostRecentResult struct {
 	// True if a user-facing pending item was removed (LIFO across both queues); false when no
 	// removable items remained.
 	Removed bool `json:"removed"`
+}
+
+// Internal snapshot of native queue state for local session orchestration.
+// Experimental: QueueSnapshotResult is part of an experimental API and may change or be
+// removed.
+type QueueSnapshotResult struct {
+	// Insertion orders for queued items, aligned with `items`.
+	ItemOrders []int64 `json:"itemOrders,omitzero"`
+	// User-facing pending items in FIFO order.
+	Items []QueuePendingItems `json:"items"`
+	// Insertion orders for immediate steering messages, aligned with `steeringMessages`.
+	SteeringMessageOrders []int64 `json:"steeringMessageOrders,omitzero"`
+	// Immediate steering messages waiting for an active turn.
+	SteeringMessages []string `json:"steeringMessages"`
 }
 
 // Event type to register consumer interest for, used by runtime gating logic.
@@ -7265,6 +7627,70 @@ type SandboxConfigUserPolicySeatbelt struct {
 	KeychainAccess *bool `json:"keychainAccess,omitempty"`
 }
 
+// Register an absolute-time scheduled prompt.
+// Experimental: ScheduleAddAtRequest is part of an experimental API and may change or be
+// removed.
+type ScheduleAddAtRequest struct {
+	// Epoch milliseconds when the prompt should fire.
+	At int64 `json:"at"`
+	// Optional display-only prompt label.
+	DisplayPrompt *string `json:"displayPrompt,omitempty"`
+	// Prompt text to enqueue when the schedule fires.
+	Prompt string `json:"prompt"`
+	// Whether the schedule should re-arm after each tick. Defaults to false.
+	Recurring *bool `json:"recurring,omitempty"`
+}
+
+// Register a cron scheduled prompt.
+// Experimental: ScheduleAddCronRequest is part of an experimental API and may change or be
+// removed.
+type ScheduleAddCronRequest struct {
+	// 5-field cron expression.
+	Cron string `json:"cron"`
+	// Optional display-only prompt label.
+	DisplayPrompt *string `json:"displayPrompt,omitempty"`
+	// Prompt text to enqueue when the schedule fires.
+	Prompt string `json:"prompt"`
+	// Whether the schedule should re-arm after each tick. Defaults to true.
+	Recurring *bool `json:"recurring,omitempty"`
+	// IANA timezone for evaluating the cron expression.
+	Tz *string `json:"tz,omitempty"`
+}
+
+// Register a relative-interval scheduled prompt.
+// Experimental: ScheduleAddRequest is part of an experimental API and may change or be
+// removed.
+type ScheduleAddRequest struct {
+	// Optional display-only prompt label.
+	DisplayPrompt *string `json:"displayPrompt,omitempty"`
+	// Human-readable interval such as `30s`, `5m`, or `2h`.
+	Interval string `json:"interval"`
+	// Prompt text to enqueue when the schedule fires.
+	Prompt string `json:"prompt"`
+	// Whether the schedule should re-arm after each tick. Defaults to true.
+	Recurring *bool `json:"recurring,omitempty"`
+}
+
+// Result of registering or re-arming a scheduled prompt.
+// Experimental: ScheduleAddResult is part of an experimental API and may change or be
+// removed.
+type ScheduleAddResult struct {
+	// The registered or updated schedule entry.
+	Entry *ScheduleEntry `json:"entry,omitempty"`
+	// User-facing validation error, when registration failed.
+	Error *string `json:"error,omitempty"`
+}
+
+// Register a self-paced scheduled prompt.
+// Experimental: ScheduleAddSelfPacedRequest is part of an experimental API and may change
+// or be removed.
+type ScheduleAddSelfPacedRequest struct {
+	// Optional display-only prompt label.
+	DisplayPrompt *string `json:"displayPrompt,omitempty"`
+	// Prompt text to enqueue when the schedule fires.
+	Prompt string `json:"prompt"`
+}
+
 // Scheduled prompt entry with ID, timing (`intervalMs`, `cron`, or `at`), prompt text,
 // recurrence, and next run time.
 // Experimental: ScheduleEntry is part of an experimental API and may change or be removed.
@@ -7294,11 +7720,29 @@ type ScheduleEntry struct {
 	Tz *string `json:"tz,omitempty"`
 }
 
+// Whether the session currently has an active self-paced schedule.
+// Experimental: ScheduleHasSelfPacedResult is part of an experimental API and may change or
+// be removed.
+type ScheduleHasSelfPacedResult struct {
+	// True when at least one active schedule is self-paced.
+	HasSelfPaced bool `json:"hasSelfPaced"`
+}
+
 // Snapshot of the currently active recurring prompts for this session.
 // Experimental: ScheduleList is part of an experimental API and may change or be removed.
 type ScheduleList struct {
 	// Active scheduled prompts, ordered by id.
 	Entries []ScheduleEntry `json:"entries"`
+}
+
+// Re-arm a self-paced scheduled prompt.
+// Experimental: ScheduleRearmSelfPacedRequest is part of an experimental API and may change
+// or be removed.
+type ScheduleRearmSelfPacedRequest struct {
+	// Epoch milliseconds when the prompt should next fire.
+	At int64 `json:"at"`
+	// Id of the self-paced scheduled prompt.
+	ID int64 `json:"id"`
 }
 
 // Identifier of the scheduled prompt to remove.
@@ -7365,10 +7809,9 @@ type SendMessageItem struct {
 	// If set, the request will fail if the named tool is not available when this message is
 	// among the user messages at the start of the current exchange
 	RequiredTool *string `json:"requiredTool,omitempty"`
-	// Optional provenance tag copied to the resulting user.message event. Must match one of
-	// three forms: the literal `system`, `command-<command-id>` for messages originating from a
-	// command (e.g. slash command, Mission Control command), or `schedule-<numeric-id>` for
-	// messages originating from a scheduled job.
+	// Optional provenance tag copied to the resulting user.message event. Must be `user`,
+	// `system`, `command-<command-id>` for command-originated messages, `schedule-<numeric-id>`
+	// for scheduled prompts, or `agent-<agent-id>` for prompts sent by another agent.
 	// Internal: Source is part of the SDK's internal API surface and is not intended for
 	// external use.
 	Source *string `json:"source,omitempty"`
@@ -7442,10 +7885,9 @@ type SendRequest struct {
 	// If set, the request will fail if the named tool is not available when this message is
 	// among the user messages at the start of the current exchange
 	RequiredTool *string `json:"requiredTool,omitempty"`
-	// Optional provenance tag copied to the resulting user.message event. Must match one of
-	// three forms: the literal `system`, `command-<command-id>` for messages originating from a
-	// command (e.g. slash command, Mission Control command), or `schedule-<numeric-id>` for
-	// messages originating from a scheduled job.
+	// Optional provenance tag copied to the resulting user.message event. Must be `user`,
+	// `system`, `command-<command-id>` for command-originated messages, `schedule-<numeric-id>`
+	// for scheduled prompts, or `agent-<agent-id>` for prompts sent by another agent.
 	// Internal: Source is part of the SDK's internal API surface and is not intended for
 	// external use.
 	Source *string `json:"source,omitempty"`
@@ -7464,6 +7906,18 @@ type SendRequest struct {
 type SendResult struct {
 	// Unique identifier assigned to the message
 	MessageID string `json:"messageId"`
+}
+
+// Internal request for sending a system notification.
+// Experimental: SendSystemNotificationRequest is part of an experimental API and may change
+// or be removed.
+type SendSystemNotificationRequest struct {
+	// Optional structured notification kind.
+	Kind any `json:"kind,omitempty"`
+	// Notification text to deliver to the model.
+	Message string `json:"message"`
+	// Internal delivery options, including passive policy.
+	Options any `json:"options,omitempty"`
 }
 
 // Agents discovered across user, project, plugin, and remote sources.
@@ -7555,6 +8009,11 @@ type SessionBulkDeleteResult struct {
 	// not surfaced per-id; check the map for absent IDs to detect them).
 	FreedBytes map[string]int64 `json:"freedBytes"`
 }
+
+// The number of running background agents (task-registry agents) that were cancelled.
+// Experimental: SessionCancelAllBackgroundAgentsResult is part of an experimental API and
+// may change or be removed.
+type SessionCancelAllBackgroundAgentsResult int64
 
 // Experimental: SessionCanvasCloseResult is part of an experimental API and may change or
 // be removed.
@@ -7905,7 +8364,7 @@ type SessionFSSqliteExistsResult struct {
 }
 
 // SQL query, query type, and optional bind parameters for executing a SQLite query against
-// the per-session database.
+// the per-session database. The provider applies its SQLite busy timeout for every call.
 // Experimental: SessionFSSqliteQueryRequest is part of an experimental API and may change
 // or be removed.
 type SessionFSSqliteQueryRequest struct {
@@ -7935,6 +8394,44 @@ type SessionFSSqliteQueryResult struct {
 	Rows []map[string]any `json:"rows"`
 	// Number of rows affected (for INSERT/UPDATE/DELETE)
 	RowsAffected int64 `json:"rowsAffected"`
+}
+
+// Classified SQLite transaction failure. busyOrLocked guarantees rollback;
+// postCommitAmbiguous must never be retried.
+// Experimental: SessionFSSqliteTransactionError is part of an experimental API and may
+// change or be removed.
+type SessionFSSqliteTransactionError struct {
+	ErrorClass SessionFSSqliteTransactionErrorClass `json:"errorClass"`
+	Message    string                               `json:"message"`
+}
+
+// Statements to execute atomically. Providers apply busy handling for every call.
+// Experimental: SessionFSSqliteTransactionRequest is part of an experimental API and may
+// change or be removed.
+type SessionFSSqliteTransactionRequest struct {
+	// Target session identifier
+	SessionID  string                                `json:"sessionId"`
+	Statements []SessionFSSqliteTransactionStatement `json:"statements"`
+}
+
+// Per-statement results, or a classified transaction error.
+// Experimental: SessionFSSqliteTransactionResult is part of an experimental API and may
+// change or be removed.
+type SessionFSSqliteTransactionResult struct {
+	Error   *SessionFSSqliteTransactionError `json:"error,omitempty"`
+	Results []SessionFSSqliteQueryResult     `json:"results"`
+}
+
+// One statement in an atomic SQLite transaction.
+// Experimental: SessionFSSqliteTransactionStatement is part of an experimental API and may
+// change or be removed.
+type SessionFSSqliteTransactionStatement struct {
+	// Optional named bind parameters.
+	Params map[string]any `json:"params,omitzero"`
+	// SQL statement to execute.
+	Query string `json:"query"`
+	// How to execute the statement.
+	QueryType SessionFSSqliteQueryType `json:"queryType"`
 }
 
 // Path whose metadata should be returned from the client-provided session filesystem.
@@ -8010,14 +8507,16 @@ type SessionInstalledPluginSource struct {
 	String                             *string
 }
 
-// Source descriptor for a direct GitHub plugin install, with `owner/repo`, optional ref,
-// and optional subpath.
+// Source descriptor for a direct GitHub plugin install, with `owner/repo`, optional ref or
+// full commit SHA, and optional subpath.
 // Experimental: SessionInstalledPluginSourceGitHub is part of an experimental API and may
 // change or be removed.
 type SessionInstalledPluginSourceGitHub struct {
 	Path *string `json:"path,omitempty"`
 	Ref  *string `json:"ref,omitempty"`
 	Repo string  `json:"repo"`
+	// Optional full 40-character hexadecimal commit SHA.
+	Sha *string `json:"sha,omitempty"`
 	// Constant value. Always "github".
 	Source SessionInstalledPluginSourceGitHubSource `json:"source"`
 }
@@ -8031,13 +8530,15 @@ type SessionInstalledPluginSourceLocal struct {
 	Source SessionInstalledPluginSourceLocalSource `json:"source"`
 }
 
-// Source descriptor for a direct URL plugin install, with URL, optional ref, and optional
-// subpath.
+// Source descriptor for a direct URL plugin install, with URL, optional ref or full commit
+// SHA, and optional subpath.
 // Experimental: SessionInstalledPluginSourceURL is part of an experimental API and may
 // change or be removed.
 type SessionInstalledPluginSourceURL struct {
 	Path *string `json:"path,omitempty"`
 	Ref  *string `json:"ref,omitempty"`
+	// Optional full 40-character hexadecimal commit SHA.
+	Sha *string `json:"sha,omitempty"`
 	// Constant value. Always "url".
 	Source SessionInstalledPluginSourceURLSource `json:"source"`
 	URL    string                                `json:"url"`
@@ -8332,6 +8833,8 @@ type SessionOpenOptions struct {
 	EnvValueMode *SessionOpenOptionsEnvValueMode `json:"envValueMode,omitempty"`
 	// Override directory for session event logs.
 	EventsLogDirectory *string `json:"eventsLogDirectory,omitempty"`
+	// Whether subagent callback events should be forwarded into the session event log sink.
+	EventsLogIncludesSubagents *bool `json:"eventsLogIncludesSubagents,omitempty"`
 	// Built-in subagent names to exclude from this session. Excluded built-ins are hidden from
 	// agent discovery and cannot be dispatched unless a custom agent with the same name is
 	// available.
@@ -8402,9 +8905,12 @@ type SessionOpenOptions struct {
 	SessionID *string `json:"sessionId,omitempty"`
 	// Initial session limits.
 	SessionLimits *SessionLimitsConfig `json:"sessionLimits,omitempty"`
-	// Shell init profile.
+	// Per-session settings for built-in shell tools.
+	Shell *ShellOptions `json:"shell,omitempty"`
+	// Use shell.initProfile instead. Shell init profile.
+	// Deprecated: ShellInitProfile is deprecated.
 	ShellInitProfile *string `json:"shellInitProfile,omitempty"`
-	// Per-shell process flags.
+	// PowerShell process flags applied to built-in and user-requested shell commands.
 	ShellProcessFlags []string `json:"shellProcessFlags,omitzero"`
 	// Additional directories to search for skills.
 	SkillDirectories []string `json:"skillDirectories,omitzero"`
@@ -8676,6 +9182,16 @@ type SessionPruneResult struct {
 type SessionQueueClearResult struct {
 }
 
+// Experimental: SessionQueueDeferSessionIdleResult is part of an experimental API and may
+// change or be removed.
+type SessionQueueDeferSessionIdleResult struct {
+}
+
+// Experimental: SessionQueueProcessResult is part of an experimental API and may change or
+// be removed.
+type SessionQueueProcessResult struct {
+}
+
 // Experimental: SessionRemoteDisableResult is part of an experimental API and may change or
 // be removed.
 type SessionRemoteDisableResult struct {
@@ -8706,6 +9222,11 @@ type SessionsCheckInUseResult struct {
 	InUse []string `json:"inUse"`
 }
 
+// Experimental: SessionScheduleHydrateResult is part of an experimental API and may change
+// or be removed.
+type SessionScheduleHydrateResult struct {
+}
+
 // Session ID to close.
 // Experimental: SessionsCloseRequest is part of an experimental API and may change or be
 // removed.
@@ -8725,6 +9246,26 @@ type SessionsCloseResult struct {
 // Experimental: SessionsConfigureSessionExtensionsResult is part of an experimental API and
 // may change or be removed.
 type SessionsConfigureSessionExtensionsResult struct {
+}
+
+// Session ID to delete from disk.
+// Experimental: SessionsDeleteRequest is part of an experimental API and may change or be
+// removed.
+type SessionsDeleteRequest struct {
+	// Session ID to delete
+	SessionID string `json:"sessionId"`
+	// Internal resolved session directory path to delete
+	SessionPath *string `json:"sessionPath,omitempty"`
+}
+
+// Experimental: SessionsDeleteResult is part of an experimental API and may change or be
+// removed.
+type SessionsDeleteResult struct {
+}
+
+// Experimental: SessionSendSystemNotificationResult is part of an experimental API and may
+// change or be removed.
+type SessionSendSystemNotificationResult struct {
 }
 
 // Session metadata records to enrich with summary and context information.
@@ -8976,6 +9517,22 @@ type SessionsGetLastForContextResult struct {
 	SessionID *string `json:"sessionId,omitempty"`
 }
 
+// Session ID whose persisted metadata should be read.
+// Experimental: SessionsGetMetadataRequest is part of an experimental API and may change or
+// be removed.
+type SessionsGetMetadataRequest struct {
+	// Session ID to inspect
+	SessionID string `json:"sessionId"`
+}
+
+// Persisted local session metadata when the session exists.
+// Experimental: SessionsGetMetadataResult is part of an experimental API and may change or
+// be removed.
+type SessionsGetMetadataResult struct {
+	// Local session metadata, omitted when the session does not exist.
+	Session *LocalSessionMetadataValue `json:"session,omitempty"`
+}
+
 // Session ID to look up the persisted remote-steerable flag for.
 // Experimental: SessionsGetPersistedRemoteSteerableRequest is part of an experimental API
 // and may change or be removed.
@@ -9019,6 +9576,22 @@ type SessionSkillsEnableResult struct {
 // Experimental: SessionSkillsEnsureLoadedResult is part of an experimental API and may
 // change or be removed.
 type SessionSkillsEnsureLoadedResult struct {
+}
+
+// Limit for non-empty local session IDs.
+// Experimental: SessionsListNonEmptySessionIDsRequest is part of an experimental API and
+// may change or be removed.
+type SessionsListNonEmptySessionIDsRequest struct {
+	// Maximum number of session IDs to return.
+	Limit *int64 `json:"limit,omitempty"`
+}
+
+// Recent local session IDs that contain user-visible history.
+// Experimental: SessionsListNonEmptySessionIDsResult is part of an experimental API and may
+// change or be removed.
+type SessionsListNonEmptySessionIDsResult struct {
+	// Session IDs ordered newest-first.
+	SessionIDs []string `json:"sessionIds"`
 }
 
 // Optional source filter, metadata-load limit, and context filter applied to the returned
@@ -9278,6 +9851,8 @@ type SessionUpdateOptionsParams struct {
 	// Override directory for the session-events log. When unset, the runtime's default events
 	// log directory is used.
 	EventsLogDirectory *string `json:"eventsLogDirectory,omitempty"`
+	// Whether subagent callback events should be forwarded into the session event log sink.
+	EventsLogIncludesSubagents *bool `json:"eventsLogIncludesSubagents,omitempty"`
 	// Built-in subagent names to exclude from this session. Excluded built-ins are hidden from
 	// agent discovery and cannot be dispatched unless a custom agent with the same name is
 	// available.
@@ -9332,9 +9907,12 @@ type SessionUpdateOptionsParams struct {
 	SessionCapabilities []SessionCapability `json:"sessionCapabilities,omitzero"`
 	// Optional session limits. Pass null to clear the session limits.
 	SessionLimits *SessionLimitsConfig `json:"sessionLimits,omitempty"`
-	// Shell init profile (`None` or `NonInteractive`).
+	// Per-session settings for built-in shell tools.
+	Shell *ShellOptions `json:"shell,omitempty"`
+	// Use shell.initProfile instead. Shell init profile (`None` or `NonInteractive`).
+	// Deprecated: ShellInitProfile is deprecated.
 	ShellInitProfile *string `json:"shellInitProfile,omitempty"`
-	// Per-shell process flags (e.g., `pwsh` arguments).
+	// PowerShell process flags applied to built-in and user-requested shell commands.
 	ShellProcessFlags []string `json:"shellProcessFlags,omitzero"`
 	// Additional directories to search for skills.
 	SkillDirectories []string `json:"skillDirectories,omitzero"`
@@ -9434,6 +10012,16 @@ type ShellExecuteUserRequestedRequest struct {
 	RequestID string `json:"requestId"`
 }
 
+// A host-provided script sourced before each built-in shell command when its shell target
+// matches the active shell.
+// Experimental: ShellInitScript is part of an experimental API and may change or be removed.
+type ShellInitScript struct {
+	// Path to the script to source.
+	Path string `json:"path"`
+	// Built-in shell that may source this script.
+	Shell ShellInitScriptShell `json:"shell"`
+}
+
 // Identifier of a process previously returned by "shell.exec" and the signal to send.
 // Experimental: ShellKillRequest is part of an experimental API and may change or be
 // removed.
@@ -9450,6 +10038,34 @@ type ShellKillRequest struct {
 type ShellKillResult struct {
 	// Whether the signal was sent successfully
 	Killed bool `json:"killed"`
+}
+
+// Per-session settings for built-in shell tools.
+// Experimental: ShellOptions is part of an experimental API and may change or be removed.
+type ShellOptions struct {
+	// Controls automatic non-interactive profile loading where supported. Explicit initScripts
+	// are unaffected.
+	InitProfile *ShellInitProfile `json:"initProfile,omitempty"`
+	// Ordered host-provided script paths sourced before each built-in shell command when the
+	// entry's shell target matches the active shell. Use these for rc files, environment setup
+	// scripts,
+	// or other custom scripts. A script that returns a nonzero status is reported, and later
+	// scripts
+	// and the user command continue while the shell remains running. Because scripts are
+	// sourced into
+	// the command shell, `exit`, `exec`, failures under `set -e`, or other shell-terminating
+	// behavior
+	// can prevent continuation. Script standard output is preserved; Bash script stderr is
+	// discarded,
+	// PowerShell exception messages are replaced, and runtime-generated failure notices omit
+	// configured script paths. When sandboxing is enabled, each script must already be readable
+	// under
+	// the active sandbox filesystem policy. Pass an empty array to clear the list.
+	InitScripts []ShellInitScript `json:"initScripts,omitzero"`
+	// Flags passed to the active built-in shell process on startup, replacing its default flags.
+	// When omitted, the built-in Bash shell uses `--norc --noprofile`,
+	// and the built-in PowerShell shell uses `-NoProfile -NoLogo`.
+	ProcessFlags []string `json:"processFlags,omitzero"`
 }
 
 // Parameters for shutting down the session
@@ -10497,6 +11113,11 @@ type UIExitPlanModeResponse struct {
 	Approved bool `json:"approved"`
 	// Whether subsequent edits should be auto-approved without confirmation.
 	AutoApproveEdits *bool `json:"autoApproveEdits,omitempty"`
+	// When true, the agent is instructed to end its turn without starting implementation so the
+	// client can restore the session model and auto-submit a fresh implementation turn on it.
+	// Set only when a distinct plan configuration (a different model, reasoning effort, or
+	// context tier) actually ran the planning turn.
+	DeferImplementation *bool `json:"deferImplementation,omitempty"`
 	// Feedback from the user when they declined the plan or requested changes.
 	Feedback *string `json:"feedback,omitempty"`
 	// The action the user selected. Defaults to 'autopilot' when autoApproveEdits is true,
@@ -11015,6 +11636,32 @@ type WorkspaceDiffResult struct {
 	RequestedMode WorkspaceDiffMode `json:"requestedMode"`
 }
 
+// Compaction summary checkpoint to persist.
+// Experimental: WorkspacesAddSummaryRequest is part of an experimental API and may change
+// or be removed.
+type WorkspacesAddSummaryRequest struct {
+	// Markdown summary content to persist.
+	Content string `json:"content"`
+	// Summary title shown in checkpoint listings.
+	Title string `json:"title"`
+}
+
+// Persisted summary metadata and refreshed workspace metadata.
+// Experimental: WorkspacesAddSummaryResult is part of an experimental API and may change or
+// be removed.
+type WorkspacesAddSummaryResult struct {
+	Summary   any `json:"summary,omitempty"`
+	Workspace any `json:"workspace,omitempty"`
+}
+
+// Whether the autopilot objective file exists.
+// Experimental: WorkspacesAutopilotObjectiveExistsResult is part of an experimental API and
+// may change or be removed.
+type WorkspacesAutopilotObjectiveExistsResult struct {
+	// True when the objective file exists.
+	Exists bool `json:"exists"`
+}
+
 // Workspace checkpoint metadata with assigned number, human-readable title, and checkpoint
 // filename.
 // Experimental: WorkspacesCheckpoints is part of an experimental API and may change or be
@@ -11038,6 +11685,14 @@ type WorkspacesCreateFileRequest struct {
 	Path string `json:"path"`
 }
 
+// Result of deleting the autopilot objective file.
+// Experimental: WorkspacesDeleteAutopilotObjectiveResult is part of an experimental API and
+// may change or be removed.
+type WorkspacesDeleteAutopilotObjectiveResult struct {
+	// True when a file was deleted.
+	Deleted bool `json:"deleted"`
+}
+
 // Parameters for computing a workspace diff.
 // Experimental: WorkspacesDiffRequest is part of an experimental API and may change or be
 // removed.
@@ -11046,6 +11701,14 @@ type WorkspacesDiffRequest struct {
 	IgnoreWhitespace *bool `json:"ignoreWhitespace,omitempty"`
 	// Diff mode requested by the client.
 	Mode WorkspaceDiffMode `json:"mode"`
+}
+
+// Optional session context used when creating a local workspace.
+// Experimental: WorkspacesEnsureRequest is part of an experimental API and may change or be
+// removed.
+type WorkspacesEnsureRequest struct {
+	// Opaque workspace context supplied by the session host.
+	Context any `json:"context,omitempty"`
 }
 
 // Current workspace metadata for the session, including its absolute filesystem path when
@@ -11095,6 +11758,14 @@ type WorkspacesListCheckpointsResult struct {
 type WorkspacesListFilesResult struct {
 	// Relative file paths in the workspace files directory
 	Files []string `json:"files"`
+}
+
+// Autopilot objective file content, or null when missing.
+// Experimental: WorkspacesReadAutopilotObjectiveResult is part of an experimental API and
+// may change or be removed.
+type WorkspacesReadAutopilotObjectiveResult struct {
+	// Autopilot objective file content, or null when missing.
+	Content *string `json:"content"`
 }
 
 // Checkpoint number to read.
@@ -11155,6 +11826,14 @@ type WorkspacesSaveLargePasteResultSaved struct {
 	SizeBytes int64 `json:"sizeBytes"`
 }
 
+// Rollback point for local workspace summaries.
+// Experimental: WorkspacesTruncateSummariesRequest is part of an experimental API and may
+// change or be removed.
+type WorkspacesTruncateSummariesRequest struct {
+	// Number of newest summaries to keep.
+	KeepCount int64 `json:"keepCount"`
+}
+
 // Public-facing projection of workspace metadata for SDK / TUI consumers
 // Experimental: WorkspaceSummary is part of an experimental API and may change or be
 // removed.
@@ -11179,6 +11858,32 @@ type WorkspaceSummary struct {
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	// Whether the display name was explicitly set by the user
 	UserNamed *bool `json:"user_named,omitempty"`
+}
+
+// Workspace metadata fields to update.
+// Experimental: WorkspacesUpdateMetadataRequest is part of an experimental API and may
+// change or be removed.
+type WorkspacesUpdateMetadataRequest struct {
+	// Opaque workspace context supplied by the session host.
+	Context any `json:"context,omitempty"`
+	// Optional workspace display name override.
+	Name *string `json:"name,omitempty"`
+}
+
+// Autopilot objective file content to persist.
+// Experimental: WorkspacesWriteAutopilotObjectiveRequest is part of an experimental API and
+// may change or be removed.
+type WorkspacesWriteAutopilotObjectiveRequest struct {
+	// Autopilot objective file content.
+	Content string `json:"content"`
+}
+
+// Result of writing the autopilot objective file.
+// Experimental: WorkspacesWriteAutopilotObjectiveResult is part of an experimental API and
+// may change or be removed.
+type WorkspacesWriteAutopilotObjectiveResult struct {
+	// Filesystem operation performed.
+	Operation string `json:"operation"`
 }
 
 // Finite reason code describing why the current turn was aborted
@@ -11654,6 +12359,34 @@ const (
 	ExternalToolTextResultForLlmContentTypeText         ExternalToolTextResultForLlmContentType = "text"
 )
 
+// Execution-critical factory storage operation.
+// Experimental: FactoryDurableOperation is part of an experimental API and may change or be
+// removed.
+type FactoryDurableOperation string
+
+const (
+	// Persisting active execution time.
+	FactoryDurableOperationAddElapsed FactoryDurableOperation = "addElapsed"
+	// Persisting an idempotent model-usage charge.
+	FactoryDurableOperationChargeCredit FactoryDurableOperation = "chargeCredit"
+	// Creating the durable run and declared phases.
+	FactoryDurableOperationCreateRun FactoryDurableOperation = "createRun"
+	// Persisting the terminal run envelope.
+	FactoryDurableOperationFinishRun FactoryDurableOperation = "finishRun"
+	// Reading a journal entry without treating storage failure as a cache miss.
+	FactoryDurableOperationJournalGet FactoryDurableOperation = "journalGet"
+	// Persisting a journal entry before reporting success.
+	FactoryDurableOperationJournalPut FactoryDurableOperation = "journalPut"
+	// Persisting the transition to running.
+	FactoryDurableOperationMarkRunStarted FactoryDurableOperation = "markRunStarted"
+	// Reading the authoritative AI-credit total.
+	FactoryDurableOperationReconcileCreditTotal FactoryDurableOperation = "reconcileCreditTotal"
+	// Rolling back an uncommitted subagent admission.
+	FactoryDurableOperationReleaseAgent FactoryDurableOperation = "releaseAgent"
+	// Persisting subagent admission accounting.
+	FactoryDurableOperationReserveAgent FactoryDurableOperation = "reserveAgent"
+)
+
 // Kind of factory progress line.
 // Experimental: FactoryLogLineKind is part of an experimental API and may change or be
 // removed.
@@ -11666,22 +12399,43 @@ const (
 	FactoryLogLineKindPhase FactoryLogLineKind = "phase"
 )
 
+// Derived lifecycle state of a factory phase.
+// Experimental: FactoryPhaseStatus is part of an experimental API and may change or be
+// removed.
+type FactoryPhaseStatus string
+
+const (
+	// The phase is currently entered and accumulating active time.
+	FactoryPhaseStatusActive FactoryPhaseStatus = "active"
+	// The phase was entered and has since been closed.
+	FactoryPhaseStatusCompleted FactoryPhaseStatus = "completed"
+	// The phase has not been entered yet.
+	FactoryPhaseStatusPending FactoryPhaseStatus = "pending"
+	// The phase was never entered because a later phase was entered or the run reached a
+	// terminal state.
+	FactoryPhaseStatusSkipped FactoryPhaseStatus = "skipped"
+)
+
 // Cumulative resource ceiling that stopped a factory run.
 // Experimental: FactoryRunFailureKind is part of an experimental API and may change or be
 // removed.
 type FactoryRunFailureKind string
 
 const (
+	// The run's settled subagent model usage exceeded the approved AI-credit ceiling, or no
+	// headroom remained for another subagent.
+	FactoryRunFailureKindMaxAiCredits FactoryRunFailureKind = "maxAiCredits"
 	// The run admitted the approved maximum total number of subagents.
 	FactoryRunFailureKindMaxTotalSubagents FactoryRunFailureKind = "maxTotalSubagents"
-	// The run reached the approved timeout deadline.
-	FactoryRunFailureKindTimeout FactoryRunFailureKind = "timeout"
+	// The run reached the approved accumulated active-execution time in seconds.
+	FactoryRunFailureKindTimeoutSeconds FactoryRunFailureKind = "timeoutSeconds"
 )
 
 // Type discriminator for FactoryRunFailure.
 type FactoryRunFailureType string
 
 const (
+	FactoryRunFailureTypeFactoryDurableFailure FactoryRunFailureType = "factory_durable_failure"
 	FactoryRunFailureTypeFactoryLimitReached   FactoryRunFailureType = "factory_limit_reached"
 	FactoryRunFailureTypeFactoryResumeDeclined FactoryRunFailureType = "factory_resume_declined"
 )
@@ -12714,6 +13468,23 @@ const (
 	SessionFSSqliteQueryTypeRun SessionFSSqliteQueryType = "run"
 )
 
+// SQLite transaction failure classification.
+// Experimental: SessionFSSqliteTransactionErrorClass is part of an experimental API and may
+// change or be removed.
+type SessionFSSqliteTransactionErrorClass string
+
+const (
+	// SQLite reported BUSY or LOCKED before commit; the transaction was rolled back and may be
+	// retried.
+	SessionFSSqliteTransactionErrorClassBusyOrLocked SessionFSSqliteTransactionErrorClass = "busyOrLocked"
+	// The statement, database, or provider failed definitively and must not be retried
+	// automatically.
+	SessionFSSqliteTransactionErrorClassFatal SessionFSSqliteTransactionErrorClass = "fatal"
+	// The transport failed after the provider may have committed; retrying could duplicate
+	// effects.
+	SessionFSSqliteTransactionErrorClassPostCommitAmbiguous SessionFSSqliteTransactionErrorClass = "postCommitAmbiguous"
+)
+
 // Constant value. Always "github".
 type SessionInstalledPluginSourceGitHubSource string
 
@@ -12960,6 +13731,32 @@ const (
 	SessionWorkingDirectoryContextHostTypeADO SessionWorkingDirectoryContextHostType = "ado"
 	// The working directory repository is hosted on GitHub.
 	SessionWorkingDirectoryContextHostTypeGitHub SessionWorkingDirectoryContextHostType = "github"
+)
+
+// Controls automatic non-interactive profile loading where supported. Explicit initScripts
+// are unaffected.
+// Experimental: ShellInitProfile is part of an experimental API and may change or be
+// removed.
+type ShellInitProfile string
+
+const (
+	// Disable automatic non-interactive profile loading. Explicit initScripts still run.
+	ShellInitProfileNone ShellInitProfile = "none"
+	// Allow automatic non-interactive profile loading when supported. Explicit initScripts
+	// still run.
+	ShellInitProfileNonInteractive ShellInitProfile = "non-interactive"
+)
+
+// Supported built-in shells for initialization scripts.
+// Experimental: ShellInitScriptShell is part of an experimental API and may change or be
+// removed.
+type ShellInitScriptShell string
+
+const (
+	// Source the script in the built-in Bash shell on macOS and Linux.
+	ShellInitScriptShellBash ShellInitScriptShell = "bash"
+	// Source the script in the built-in PowerShell shell on Windows.
+	ShellInitScriptShellPowershell ShellInitScriptShell = "powershell"
 )
 
 // Signal to send (default: SIGTERM)
@@ -14849,6 +15646,26 @@ func (a *InternalServerSessionsAPI) ConfigureSessionExtensions(ctx context.Conte
 	return &result, nil
 }
 
+// Deletes one local session from disk after running the same lifecycle hooks as the session
+// manager.
+//
+// RPC method: sessions.delete.
+//
+// Parameters: Session ID to delete from disk.
+// Internal: Delete is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalServerSessionsAPI) Delete(ctx context.Context, params *SessionsDeleteRequest) (*SessionsDeleteResult, error) {
+	raw, err := a.client.Request(ctx, "sessions.delete", params)
+	if err != nil {
+		return nil, err
+	}
+	var result SessionsDeleteResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // GetBoardEntryCount gets the dynamic-context board entry count associated with a session,
 // when available. Internal: this exists solely so CLI telemetry events (`rem_spawn_gate`,
 // `rem_consolidation_complete`) can pair START / END board counts around the detached
@@ -14900,6 +15717,27 @@ func (a *InternalServerSessionsAPI) GetEventFilePath(ctx context.Context, params
 	return &result, nil
 }
 
+// GetMetadata reads lightweight persisted metadata for one local session without opening it.
+//
+// RPC method: sessions.getMetadata.
+//
+// Parameters: Session ID whose persisted metadata should be read.
+//
+// Returns: Persisted local session metadata when the session exists.
+// Internal: GetMetadata is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalServerSessionsAPI) GetMetadata(ctx context.Context, params *SessionsGetMetadataRequest) (*SessionsGetMetadataResult, error) {
+	raw, err := a.client.Request(ctx, "sessions.getMetadata", params)
+	if err != nil {
+		return nil, err
+	}
+	var result SessionsGetMetadataResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // GetPersistedRemoteSteerable returns a session's persisted remote-steerable flag, if any
 // has been recorded. Internal: this is CLI-specific book-keeping used by `--continue` /
 // `--resume` to inherit the prior session's remote-steerable preference. SDK consumers that
@@ -14920,6 +15758,28 @@ func (a *InternalServerSessionsAPI) GetPersistedRemoteSteerable(ctx context.Cont
 		return nil, err
 	}
 	var result SessionsGetPersistedRemoteSteerableResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ListNonEmptySessionIds lists recent local session IDs that contain user-visible history,
+// omitting housekeeping-only sessions.
+//
+// RPC method: sessions.listNonEmptySessionIds.
+//
+// Parameters: Limit for non-empty local session IDs.
+//
+// Returns: Recent local session IDs that contain user-visible history.
+// Internal: ListNonEmptySessionIds is part of the SDK's internal handshake/plumbing;
+// external callers should not use it.
+func (a *InternalServerSessionsAPI) ListNonEmptySessionIds(ctx context.Context, params *SessionsListNonEmptySessionIDsRequest) (*SessionsListNonEmptySessionIDsResult, error) {
+	raw, err := a.client.Request(ctx, "sessions.listNonEmptySessionIds", params)
+	if err != nil {
+		return nil, err
+	}
+	var result SessionsListNonEmptySessionIDsResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
@@ -15703,6 +16563,7 @@ type FactoryAPI sessionAPI
 func (a *FactoryAPI) Agent(ctx context.Context, params *FactoryAgentRequest) (*FactoryAgentResult, error) {
 	req := map[string]any{"sessionId": a.sessionID}
 	if params != nil {
+		req["executionToken"] = params.ExecutionToken
 		req["factoryRunId"] = params.FactoryRunID
 		req["opts"] = params.Opts
 		req["prompt"] = params.Prompt
@@ -15764,6 +16625,82 @@ func (a *FactoryAPI) GetRun(ctx context.Context, params *FactoryGetRunRequest) (
 	return &result, nil
 }
 
+// GetRunDetail gets durable and live observability detail for one factory run.
+//
+// RPC method: session.factory.getRunDetail.
+//
+// Parameters: Parameters for retrieving a factory run.
+//
+// Returns: Full factory run observability detail.
+func (a *FactoryAPI) GetRunDetail(ctx context.Context, params *FactoryGetRunRequest) (*FactoryRunDetail, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["runId"] = params.RunID
+	}
+	raw, err := a.client.Request(ctx, "session.factory.getRunDetail", req)
+	if err != nil {
+		return nil, err
+	}
+	var result FactoryRunDetail
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetRunProgress pages durable progress for one factory run.
+//
+// RPC method: session.factory.getRunProgress.
+//
+// Parameters: Parameters for paging factory progress.
+//
+// Returns: A bidirectional page of factory progress.
+func (a *FactoryAPI) GetRunProgress(ctx context.Context, params *FactoryGetRunProgressRequest) (*FactoryProgressPage, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		if params.AfterSeq != nil {
+			req["afterSeq"] = *params.AfterSeq
+		}
+		if params.BeforeSeq != nil {
+			req["beforeSeq"] = *params.BeforeSeq
+		}
+		if params.Limit != nil {
+			req["limit"] = *params.Limit
+		}
+		if params.PhaseID != nil {
+			req["phaseId"] = *params.PhaseID
+		}
+		req["runId"] = params.RunID
+	}
+	raw, err := a.client.Request(ctx, "session.factory.getRunProgress", req)
+	if err != nil {
+		return nil, err
+	}
+	var result FactoryProgressPage
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ListRuns lists durable factory runs for this session in creation order.
+//
+// RPC method: session.factory.listRuns.
+//
+// Returns: Factory runs in durable creation order.
+func (a *FactoryAPI) ListRuns(ctx context.Context) (*FactoryListRunsResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.factory.listRuns", req)
+	if err != nil {
+		return nil, err
+	}
+	var result FactoryListRunsResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // Log records a batch of ordered factory progress lines.
 //
 // RPC method: session.factory.log.
@@ -15774,6 +16711,7 @@ func (a *FactoryAPI) GetRun(ctx context.Context, params *FactoryGetRunRequest) (
 func (a *FactoryAPI) Log(ctx context.Context, params *FactoryLogRequest) (*FactoryAckResult, error) {
 	req := map[string]any{"sessionId": a.sessionID}
 	if params != nil {
+		req["executionToken"] = params.ExecutionToken
 		req["lines"] = params.Lines
 		req["runId"] = params.RunID
 	}
@@ -15782,6 +16720,32 @@ func (a *FactoryAPI) Log(ctx context.Context, params *FactoryLogRequest) (*Facto
 		return nil, err
 	}
 	var result FactoryAckResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Resumes a factory run using its persisted name, arguments, journal, and accounting.
+//
+// RPC method: session.factory.resume.
+//
+// Parameters: Parameters for resuming a factory run from its persisted identity.
+//
+// Returns: Resolved persisted factory identity and resumed run envelope.
+func (a *FactoryAPI) Resume(ctx context.Context, params *FactoryResumeRequest) (*FactoryResumeResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		if params.Limits != nil {
+			req["limits"] = *params.Limits
+		}
+		req["runId"] = params.RunID
+	}
+	raw, err := a.client.Request(ctx, "session.factory.resume", req)
+	if err != nil {
+		return nil, err
+	}
+	var result FactoryResumeResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
@@ -15828,6 +16792,7 @@ type FactoryJournalAPI sessionAPI
 func (a *FactoryJournalAPI) Get(ctx context.Context, params *FactoryJournalGetRequest) (*FactoryJournalGetResult, error) {
 	req := map[string]any{"sessionId": a.sessionID}
 	if params != nil {
+		req["executionToken"] = params.ExecutionToken
 		req["key"] = params.Key
 		req["runId"] = params.RunID
 	}
@@ -15852,6 +16817,7 @@ func (a *FactoryJournalAPI) Get(ctx context.Context, params *FactoryJournalGetRe
 func (a *FactoryJournalAPI) Put(ctx context.Context, params *FactoryJournalPutRequest) (*FactoryAckResult, error) {
 	req := map[string]any{"sessionId": a.sessionID}
 	if params != nil {
+		req["executionToken"] = params.ExecutionToken
 		req["key"] = params.Key
 		req["resultJson"] = params.ResultJSON
 		req["runId"] = params.RunID
@@ -16683,6 +17649,29 @@ func (a *MCPOauthAPI) Login(ctx context.Context, params *MCPOauthLoginRequest) (
 	return &result, nil
 }
 
+// Responds to a pending MCP OAuth authorization request by its request id.
+//
+// RPC method: session.mcp.oauth.respond.
+//
+// Parameters: Pending MCP OAuth request id to respond to.
+//
+// Returns: Indicates whether the pending MCP OAuth response was accepted.
+func (a *MCPOauthAPI) Respond(ctx context.Context, params *MCPOauthRespondRequest) (*MCPOauthRespondResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["requestId"] = params.RequestID
+	}
+	raw, err := a.client.Request(ctx, "session.mcp.oauth.respond", req)
+	if err != nil {
+		return nil, err
+	}
+	var result MCPOauthRespondResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // Experimental: Oauth returns experimental APIs that may change or be removed.
 func (s *MCPAPI) Oauth() *MCPOauthAPI {
 	return (*MCPOauthAPI)(s)
@@ -17326,6 +18315,9 @@ func (a *OptionsAPI) Update(ctx context.Context, params *SessionUpdateOptionsPar
 		if params.EventsLogDirectory != nil {
 			req["eventsLogDirectory"] = *params.EventsLogDirectory
 		}
+		if params.EventsLogIncludesSubagents != nil {
+			req["eventsLogIncludesSubagents"] = *params.EventsLogIncludesSubagents
+		}
 		if params.ExcludedBuiltinAgents != nil {
 			req["excludedBuiltinAgents"] = params.ExcludedBuiltinAgents
 		}
@@ -17388,6 +18380,9 @@ func (a *OptionsAPI) Update(ctx context.Context, params *SessionUpdateOptionsPar
 		}
 		if params.SessionLimits != nil {
 			req["sessionLimits"] = *params.SessionLimits
+		}
+		if params.Shell != nil {
+			req["shell"] = *params.Shell
 		}
 		if params.ShellInitProfile != nil {
 			req["shellInitProfile"] = *params.ShellInitProfile
@@ -19366,6 +20361,49 @@ func (a *VisibilityAPI) Set(ctx context.Context, params *VisibilitySetRequest) (
 // Experimental: WorkspacesAPI contains experimental APIs that may change or be removed.
 type WorkspacesAPI sessionAPI
 
+// AddSummary adds a compaction summary checkpoint to the local session workspace.
+//
+// RPC method: session.workspaces.addSummary.
+//
+// Parameters: Compaction summary checkpoint to persist.
+//
+// Returns: Persisted summary metadata and refreshed workspace metadata.
+func (a *WorkspacesAPI) AddSummary(ctx context.Context, params *WorkspacesAddSummaryRequest) (*WorkspacesAddSummaryResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["content"] = params.Content
+		req["title"] = params.Title
+	}
+	raw, err := a.client.Request(ctx, "session.workspaces.addSummary", req)
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspacesAddSummaryResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// AutopilotObjectiveExists checks whether the local session workspace has an autopilot
+// objective state file.
+//
+// RPC method: session.workspaces.autopilotObjectiveExists.
+//
+// Returns: Whether the autopilot objective file exists.
+func (a *WorkspacesAPI) AutopilotObjectiveExists(ctx context.Context) (*WorkspacesAutopilotObjectiveExistsResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.workspaces.autopilotObjectiveExists", req)
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspacesAutopilotObjectiveExistsResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // CreateFile creates or overwrites a file in the session workspace files directory.
 //
 // RPC method: session.workspaces.createFile.
@@ -19382,6 +20420,25 @@ func (a *WorkspacesAPI) CreateFile(ctx context.Context, params *WorkspacesCreate
 		return nil, err
 	}
 	var result SessionWorkspacesCreateFileResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DeleteAutopilotObjective deletes the autopilot objective state file from the local
+// session workspace.
+//
+// RPC method: session.workspaces.deleteAutopilotObjective.
+//
+// Returns: Result of deleting the autopilot objective file.
+func (a *WorkspacesAPI) DeleteAutopilotObjective(ctx context.Context) (*WorkspacesDeleteAutopilotObjectiveResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.workspaces.deleteAutopilotObjective", req)
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspacesDeleteAutopilotObjectiveResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
@@ -19408,6 +20465,32 @@ func (a *WorkspacesAPI) Diff(ctx context.Context, params *WorkspacesDiffRequest)
 		return nil, err
 	}
 	var result WorkspaceDiffResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Ensures a local session workspace exists and returns it.
+//
+// RPC method: session.workspaces.ensure.
+//
+// Parameters: Optional session context used when creating a local workspace.
+//
+// Returns: Current workspace metadata for the session, including its absolute filesystem
+// path when available.
+func (a *WorkspacesAPI) Ensure(ctx context.Context, params *WorkspacesEnsureRequest) (*WorkspacesGetWorkspaceResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		if params.Context != nil {
+			req["context"] = params.Context
+		}
+	}
+	raw, err := a.client.Request(ctx, "session.workspaces.ensure", req)
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspacesGetWorkspaceResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
@@ -19464,6 +20547,25 @@ func (a *WorkspacesAPI) ListFiles(ctx context.Context) (*WorkspacesListFilesResu
 		return nil, err
 	}
 	var result WorkspacesListFilesResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ReadAutopilotObjective reads the autopilot objective state file from the local session
+// workspace.
+//
+// RPC method: session.workspaces.readAutopilotObjective.
+//
+// Returns: Autopilot objective file content, or null when missing.
+func (a *WorkspacesAPI) ReadAutopilotObjective(ctx context.Context) (*WorkspacesReadAutopilotObjectiveResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.workspaces.readAutopilotObjective", req)
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspacesReadAutopilotObjectiveResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
@@ -19540,6 +20642,84 @@ func (a *WorkspacesAPI) SaveLargePaste(ctx context.Context, params *WorkspacesSa
 	return &result, nil
 }
 
+// TruncateSummaries truncates local workspace compaction summaries after a rollback.
+//
+// RPC method: session.workspaces.truncateSummaries.
+//
+// Parameters: Rollback point for local workspace summaries.
+//
+// Returns: Current workspace metadata for the session, including its absolute filesystem
+// path when available.
+func (a *WorkspacesAPI) TruncateSummaries(ctx context.Context, params *WorkspacesTruncateSummariesRequest) (*WorkspacesGetWorkspaceResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["keepCount"] = params.KeepCount
+	}
+	raw, err := a.client.Request(ctx, "session.workspaces.truncateSummaries", req)
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspacesGetWorkspaceResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdateMetadata updates workspace metadata for a local session and returns the refreshed
+// workspace.
+//
+// RPC method: session.workspaces.updateMetadata.
+//
+// Parameters: Workspace metadata fields to update.
+//
+// Returns: Current workspace metadata for the session, including its absolute filesystem
+// path when available.
+func (a *WorkspacesAPI) UpdateMetadata(ctx context.Context, params *WorkspacesUpdateMetadataRequest) (*WorkspacesGetWorkspaceResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		if params.Context != nil {
+			req["context"] = params.Context
+		}
+		if params.Name != nil {
+			req["name"] = *params.Name
+		}
+	}
+	raw, err := a.client.Request(ctx, "session.workspaces.updateMetadata", req)
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspacesGetWorkspaceResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// WriteAutopilotObjective writes the autopilot objective state file in the local session
+// workspace.
+//
+// RPC method: session.workspaces.writeAutopilotObjective.
+//
+// Parameters: Autopilot objective file content to persist.
+//
+// Returns: Result of writing the autopilot objective file.
+func (a *WorkspacesAPI) WriteAutopilotObjective(ctx context.Context, params *WorkspacesWriteAutopilotObjectiveRequest) (*WorkspacesWriteAutopilotObjectiveResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["content"] = params.Content
+	}
+	raw, err := a.client.Request(ctx, "session.workspaces.writeAutopilotObjective", req)
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspacesWriteAutopilotObjectiveResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // SessionRPC provides typed session-scoped RPC methods.
 type SessionRPC struct {
 	// Reuse a single struct instead of allocating one for each service on the heap.
@@ -19603,6 +20783,58 @@ func (a *SessionRPC) Abort(ctx context.Context, params *AbortRequest) (*AbortRes
 		return nil, err
 	}
 	var result AbortResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// CancelAllBackgroundAgents cancels every running background agent (task-registry subagents
+// plus sidekick agents) without interrupting the main agent loop. Promoted attached shells
+// are left running.
+//
+// RPC method: session.cancelAllBackgroundAgents.
+//
+// Returns: The number of running background agents (task-registry agents) that were
+// cancelled.
+// Experimental: CancelAllBackgroundAgents is an experimental API and may change or be
+// removed in future versions.
+func (a *SessionRPC) CancelAllBackgroundAgents(ctx context.Context) (*SessionCancelAllBackgroundAgentsResult, error) {
+	req := map[string]any{"sessionId": a.common.sessionID}
+	raw, err := a.common.client.Request(ctx, "session.cancelAllBackgroundAgents", req)
+	if err != nil {
+		return nil, err
+	}
+	var result SessionCancelAllBackgroundAgentsResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// InterruptMainTurn interrupts the current main agent turn while leaving running background
+// work (subagents, sidekicks, and promoted attached shells) alive. No-op when the main loop
+// is not processing.
+//
+// RPC method: session.interruptMainTurn.
+//
+// Parameters: Parameters for interrupting the main agent turn.
+//
+// Returns: Result of interrupting the main agent turn.
+// Experimental: InterruptMainTurn is an experimental API and may change or be removed in
+// future versions.
+func (a *SessionRPC) InterruptMainTurn(ctx context.Context, params *InterruptMainTurnRequest) (*InterruptMainTurnResult, error) {
+	req := map[string]any{"sessionId": a.common.sessionID}
+	if params != nil {
+		if params.FlushQueued != nil {
+			req["flushQueued"] = *params.FlushQueued
+		}
+	}
+	raw, err := a.common.client.Request(ctx, "session.interruptMainTurn", req)
+	if err != nil {
+		return nil, err
+	}
+	var result InterruptMainTurnResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
@@ -19969,6 +21201,385 @@ func (a *InternalMCPAPI) UnregisterExternalClient(ctx context.Context, params *M
 	return &result, nil
 }
 
+// Experimental: InternalQueueAPI contains experimental APIs that may change or be removed.
+type InternalQueueAPI internalSessionAPI
+
+// BeginDeferredIdleDrain begins a native deferred-idle drain when background work has
+// quiesced.
+//
+// RPC method: session.queue.beginDeferredIdleDrain.
+//
+// Parameters: Inputs for starting a deferred-idle drain.
+//
+// Returns: Whether a deferred-idle drain should run.
+// Internal: BeginDeferredIdleDrain is part of the SDK's internal handshake/plumbing;
+// external callers should not use it.
+func (a *InternalQueueAPI) BeginDeferredIdleDrain(ctx context.Context, params *QueueBeginDeferredIdleDrainRequest) (*QueueBeginDeferredIdleDrainResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["activeBackgroundWork"] = params.ActiveBackgroundWork
+	}
+	raw, err := a.client.Request(ctx, "session.queue.beginDeferredIdleDrain", req)
+	if err != nil {
+		return nil, err
+	}
+	var result QueueBeginDeferredIdleDrainResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ConsumeSystemNotifications consumes queued native system notifications matching an
+// internal filter.
+//
+// RPC method: session.queue.consumeSystemNotifications.
+//
+// Parameters: Internal filter for consuming queued system notifications.
+//
+// Returns: Indicates whether a user-facing pending item was removed.
+// Internal: ConsumeSystemNotifications is part of the SDK's internal handshake/plumbing;
+// external callers should not use it.
+func (a *InternalQueueAPI) ConsumeSystemNotifications(ctx context.Context, params *QueueConsumeSystemNotificationsRequest) (*QueueRemoveMostRecentResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["filter"] = params.Filter
+	}
+	raw, err := a.client.Request(ctx, "session.queue.consumeSystemNotifications", req)
+	if err != nil {
+		return nil, err
+	}
+	var result QueueRemoveMostRecentResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DeferSessionIdle marks session.idle as deferred by native background work state.
+//
+// RPC method: session.queue.deferSessionIdle.
+//
+// Parameters: Inputs for marking session.idle deferred in native state.
+// Internal: DeferSessionIdle is part of the SDK's internal handshake/plumbing; external
+// callers should not use it.
+func (a *InternalQueueAPI) DeferSessionIdle(ctx context.Context, params *QueueDeferSessionIdleRequest) (*SessionQueueDeferSessionIdleResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["aborted"] = params.Aborted
+	}
+	raw, err := a.client.Request(ctx, "session.queue.deferSessionIdle", req)
+	if err != nil {
+		return nil, err
+	}
+	var result SessionQueueDeferSessionIdleResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// EnqueueResumePending enqueues the internal resume-pending wake item when orphan handling
+// needs a follow-up turn.
+//
+// RPC method: session.queue.enqueueResumePending.
+//
+// Returns: Result of enqueueing the resume-pending wake item.
+// Internal: EnqueueResumePending is part of the SDK's internal handshake/plumbing; external
+// callers should not use it.
+func (a *InternalQueueAPI) EnqueueResumePending(ctx context.Context) (*QueueEnqueueResumePendingResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.queue.enqueueResumePending", req)
+	if err != nil {
+		return nil, err
+	}
+	var result QueueEnqueueResumePendingResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// FinishDeferredIdleDrain finishes a native deferred-idle drain and reports whether to
+// drain queue work or emit idle.
+//
+// RPC method: session.queue.finishDeferredIdleDrain.
+//
+// Parameters: Inputs for completing a deferred-idle drain.
+//
+// Returns: Action selected by the native deferred-idle drain.
+// Internal: FinishDeferredIdleDrain is part of the SDK's internal handshake/plumbing;
+// external callers should not use it.
+func (a *InternalQueueAPI) FinishDeferredIdleDrain(ctx context.Context, params *QueueFinishDeferredIdleDrainRequest) (*QueueFinishDeferredIdleDrainResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["activeBackgroundWork"] = params.ActiveBackgroundWork
+		req["hasPending"] = params.HasPending
+	}
+	raw, err := a.client.Request(ctx, "session.queue.finishDeferredIdleDrain", req)
+	if err != nil {
+		return nil, err
+	}
+	var result QueueFinishDeferredIdleDrainResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// HasPending reports whether the local session has native queued work pending.
+//
+// RPC method: session.queue.hasPending.
+//
+// Returns: Whether the native queue has pending work.
+// Internal: HasPending is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalQueueAPI) HasPending(ctx context.Context) (*QueueHasPendingResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.queue.hasPending", req)
+	if err != nil {
+		return nil, err
+	}
+	var result QueueHasPendingResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Process drains the native local-session work queue for in-process session orchestration.
+//
+// RPC method: session.queue.process.
+// Internal: Process is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalQueueAPI) Process(ctx context.Context) (*SessionQueueProcessResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.queue.process", req)
+	if err != nil {
+		return nil, err
+	}
+	var result SessionQueueProcessResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Snapshot returns the internal native queue snapshot for in-process session orchestration.
+//
+// RPC method: session.queue.snapshot.
+//
+// Returns: Internal snapshot of native queue state for local session orchestration.
+// Internal: Snapshot is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalQueueAPI) Snapshot(ctx context.Context) (*QueueSnapshotResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.queue.snapshot", req)
+	if err != nil {
+		return nil, err
+	}
+	var result QueueSnapshotResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Experimental: InternalScheduleAPI contains experimental APIs that may change or be
+// removed.
+type InternalScheduleAPI internalSessionAPI
+
+// Add registers a relative-interval scheduled prompt.
+//
+// RPC method: session.schedule.add.
+//
+// Parameters: Register a relative-interval scheduled prompt.
+//
+// Returns: Result of registering or re-arming a scheduled prompt.
+// Internal: Add is part of the SDK's internal handshake/plumbing; external callers should
+// not use it.
+func (a *InternalScheduleAPI) Add(ctx context.Context, params *ScheduleAddRequest) (*ScheduleAddResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		if params.DisplayPrompt != nil {
+			req["displayPrompt"] = *params.DisplayPrompt
+		}
+		req["interval"] = params.Interval
+		req["prompt"] = params.Prompt
+		if params.Recurring != nil {
+			req["recurring"] = *params.Recurring
+		}
+	}
+	raw, err := a.client.Request(ctx, "session.schedule.add", req)
+	if err != nil {
+		return nil, err
+	}
+	var result ScheduleAddResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// AddAt registers an absolute-time scheduled prompt.
+//
+// RPC method: session.schedule.addAt.
+//
+// Parameters: Register an absolute-time scheduled prompt.
+//
+// Returns: Result of registering or re-arming a scheduled prompt.
+// Internal: AddAt is part of the SDK's internal handshake/plumbing; external callers should
+// not use it.
+func (a *InternalScheduleAPI) AddAt(ctx context.Context, params *ScheduleAddAtRequest) (*ScheduleAddResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["at"] = params.At
+		if params.DisplayPrompt != nil {
+			req["displayPrompt"] = *params.DisplayPrompt
+		}
+		req["prompt"] = params.Prompt
+		if params.Recurring != nil {
+			req["recurring"] = *params.Recurring
+		}
+	}
+	raw, err := a.client.Request(ctx, "session.schedule.addAt", req)
+	if err != nil {
+		return nil, err
+	}
+	var result ScheduleAddResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// AddCron registers a recurring cron scheduled prompt.
+//
+// RPC method: session.schedule.addCron.
+//
+// Parameters: Register a cron scheduled prompt.
+//
+// Returns: Result of registering or re-arming a scheduled prompt.
+// Internal: AddCron is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalScheduleAPI) AddCron(ctx context.Context, params *ScheduleAddCronRequest) (*ScheduleAddResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["cron"] = params.Cron
+		if params.DisplayPrompt != nil {
+			req["displayPrompt"] = *params.DisplayPrompt
+		}
+		req["prompt"] = params.Prompt
+		if params.Recurring != nil {
+			req["recurring"] = *params.Recurring
+		}
+		if params.Tz != nil {
+			req["tz"] = *params.Tz
+		}
+	}
+	raw, err := a.client.Request(ctx, "session.schedule.addCron", req)
+	if err != nil {
+		return nil, err
+	}
+	var result ScheduleAddResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// AddSelfPaced registers a self-paced scheduled prompt.
+//
+// RPC method: session.schedule.addSelfPaced.
+//
+// Parameters: Register a self-paced scheduled prompt.
+//
+// Returns: Result of registering or re-arming a scheduled prompt.
+// Internal: AddSelfPaced is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalScheduleAPI) AddSelfPaced(ctx context.Context, params *ScheduleAddSelfPacedRequest) (*ScheduleAddResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		if params.DisplayPrompt != nil {
+			req["displayPrompt"] = *params.DisplayPrompt
+		}
+		req["prompt"] = params.Prompt
+	}
+	raw, err := a.client.Request(ctx, "session.schedule.addSelfPaced", req)
+	if err != nil {
+		return nil, err
+	}
+	var result ScheduleAddResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// HasSelfPaced reports whether the session has an active self-paced scheduled prompt.
+//
+// RPC method: session.schedule.hasSelfPaced.
+//
+// Returns: Whether the session currently has an active self-paced schedule.
+// Internal: HasSelfPaced is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalScheduleAPI) HasSelfPaced(ctx context.Context) (*ScheduleHasSelfPacedResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.schedule.hasSelfPaced", req)
+	if err != nil {
+		return nil, err
+	}
+	var result ScheduleHasSelfPacedResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Hydrates the native schedule registry from persisted session events.
+//
+// RPC method: session.schedule.hydrate.
+// Internal: Hydrate is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalScheduleAPI) Hydrate(ctx context.Context) (*SessionScheduleHydrateResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	raw, err := a.client.Request(ctx, "session.schedule.hydrate", req)
+	if err != nil {
+		return nil, err
+	}
+	var result SessionScheduleHydrateResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// RearmSelfPaced re-arms an active self-paced scheduled prompt.
+//
+// RPC method: session.schedule.rearmSelfPaced.
+//
+// Parameters: Re-arm a self-paced scheduled prompt.
+//
+// Returns: Result of registering or re-arming a scheduled prompt.
+// Internal: RearmSelfPaced is part of the SDK's internal handshake/plumbing; external
+// callers should not use it.
+func (a *InternalScheduleAPI) RearmSelfPaced(ctx context.Context, params *ScheduleRearmSelfPacedRequest) (*ScheduleAddResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		req["at"] = params.At
+		req["id"] = params.ID
+	}
+	raw, err := a.client.Request(ctx, "session.schedule.rearmSelfPaced", req)
+	if err != nil {
+		return nil, err
+	}
+	var result ScheduleAddResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // Experimental: InternalSettingsAPI contains experimental APIs that may change or be
 // removed.
 type InternalSettingsAPI internalSessionAPI
@@ -20036,13 +21647,49 @@ type InternalSessionRPC struct {
 	common internalSessionAPI
 
 	MCP      *InternalMCPAPI
+	Queue    *InternalQueueAPI
+	Schedule *InternalScheduleAPI
 	Settings *InternalSettingsAPI
+}
+
+// SendSystemNotification queues or sends an internal system notification to the session
+// according to its passive policy.
+//
+// RPC method: session.sendSystemNotification.
+//
+// Parameters: Internal request for sending a system notification.
+// Experimental: SendSystemNotification is an experimental API and may change or be removed
+// in future versions.
+// Internal: SendSystemNotification is part of the SDK's internal handshake/plumbing;
+// external callers should not use it.
+func (a *InternalSessionRPC) SendSystemNotification(ctx context.Context, params *SendSystemNotificationRequest) (*SessionSendSystemNotificationResult, error) {
+	req := map[string]any{"sessionId": a.common.sessionID}
+	if params != nil {
+		if params.Kind != nil {
+			req["kind"] = params.Kind
+		}
+		req["message"] = params.Message
+		if params.Options != nil {
+			req["options"] = params.Options
+		}
+	}
+	raw, err := a.common.client.Request(ctx, "session.sendSystemNotification", req)
+	if err != nil {
+		return nil, err
+	}
+	var result SessionSendSystemNotificationResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func NewInternalSessionRPC(client *jsonrpc2.Client, sessionID string) *InternalSessionRPC {
 	r := &InternalSessionRPC{}
 	r.common = internalSessionAPI{client: client, sessionID: sessionID}
 	r.MCP = (*InternalMCPAPI)(&r.common)
+	r.Queue = (*InternalQueueAPI)(&r.common)
+	r.Schedule = (*InternalScheduleAPI)(&r.common)
 	r.Settings = (*InternalSettingsAPI)(&r.common)
 	return r
 }
@@ -20202,16 +21849,27 @@ type SessionFSHandler interface {
 	//
 	// Returns: Indicates whether the per-session SQLite database already exists.
 	SqliteExists(request *SessionFSSqliteExistsRequest) (*SessionFSSqliteExistsResult, error)
-	// SqliteQuery executes a SQLite query against the per-session database.
+	// SqliteQuery executes a SQLite query against the per-session database. Providers apply
+	// busy handling for every call.
 	//
 	// RPC method: sessionFs.sqliteQuery.
 	//
 	// Parameters: SQL query, query type, and optional bind parameters for executing a SQLite
-	// query against the per-session database.
+	// query against the per-session database. The provider applies its SQLite busy timeout for
+	// every call.
 	//
 	// Returns: Query results including rows, columns, and rows affected, or a filesystem error
 	// if execution failed.
 	SqliteQuery(request *SessionFSSqliteQueryRequest) (*SessionFSSqliteQueryResult, error)
+	// SqliteTransaction executes SQLite statements atomically on the provider-owned connection.
+	//
+	// RPC method: sessionFs.sqliteTransaction.
+	//
+	// Parameters: Statements to execute atomically. Providers apply busy handling for every
+	// call.
+	//
+	// Returns: Per-statement results, or a classified transaction error.
+	SqliteTransaction(request *SessionFSSqliteTransactionRequest) (*SessionFSSqliteTransactionResult, error)
 	// Stat gets metadata for a path in the client-provided session filesystem.
 	//
 	// RPC method: sessionFs.stat.
@@ -20550,6 +22208,25 @@ func RegisterClientSessionAPIHandlers(client *jsonrpc2.Client, getHandlers func(
 			return nil, &jsonrpc2.Error{Code: -32603, Message: fmt.Sprintf("No sessionFs handler registered for session: %s", request.SessionID)}
 		}
 		result, err := handlers.SessionFS.SqliteQuery(&request)
+		if err != nil {
+			return nil, clientSessionHandlerError(err)
+		}
+		raw, err := json.Marshal(result)
+		if err != nil {
+			return nil, &jsonrpc2.Error{Code: -32603, Message: fmt.Sprintf("Failed to marshal response: %v", err)}
+		}
+		return raw, nil
+	})
+	client.SetRequestHandler("sessionFs.sqliteTransaction", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
+		var request SessionFSSqliteTransactionRequest
+		if err := json.Unmarshal(params, &request); err != nil {
+			return nil, &jsonrpc2.Error{Code: -32602, Message: fmt.Sprintf("Invalid params: %v", err)}
+		}
+		handlers := getHandlers(request.SessionID)
+		if handlers == nil || handlers.SessionFS == nil {
+			return nil, &jsonrpc2.Error{Code: -32603, Message: fmt.Sprintf("No sessionFs handler registered for session: %s", request.SessionID)}
+		}
+		result, err := handlers.SessionFS.SqliteTransaction(&request)
 		if err != nil {
 			return nil, clientSessionHandlerError(err)
 		}

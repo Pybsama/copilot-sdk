@@ -18,6 +18,7 @@ import type {
 import type { CopilotSession } from "./session.js";
 import type {
     GitHubTelemetryNotification,
+    JsonValue,
     ModelBillingTokenPrices,
     OpenCanvasInstance,
     RemoteSessionMode,
@@ -443,7 +444,7 @@ export type ToolBinaryResult = {
     description?: string;
 };
 
-export type ToolTelemetry = Record<string, Record<string, unknown> | undefined>;
+export type ToolTelemetry = Record<string, { [key: string]: JsonValue } | undefined>;
 
 export type ToolResultObject = {
     textResultForLlm: string;

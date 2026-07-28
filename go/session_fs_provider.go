@@ -230,6 +230,22 @@ func (a *sessionFSAdapter) SqliteQuery(request *rpc.SessionFSSqliteQueryRequest)
 	}, nil
 }
 
+func (a *sessionFSAdapter) SqliteTransaction(request *rpc.SessionFSSqliteTransactionRequest) (*rpc.SessionFSSqliteTransactionResult, error) {
+	// This SDK's provider interface exposes no atomic-transaction hook, so the
+	// batch is refused outright rather than applied non-atomically.
+	msg := "SQLite is not supported by this session filesystem provider"
+	if _, ok := a.provider.(SessionFSSqliteProvider); ok {
+		msg = "Atomic SQLite transactions are not supported by this session filesystem provider"
+	}
+	return &rpc.SessionFSSqliteTransactionResult{
+		Results: []rpc.SessionFSSqliteQueryResult{},
+		Error: &rpc.SessionFSSqliteTransactionError{
+			ErrorClass: rpc.SessionFSSqliteTransactionErrorClassFatal,
+			Message:    msg,
+		},
+	}, nil
+}
+
 func (a *sessionFSAdapter) SqliteExists(request *rpc.SessionFSSqliteExistsRequest) (*rpc.SessionFSSqliteExistsResult, error) {
 	sp, ok := a.provider.(SessionFSSqliteProvider)
 	if !ok {

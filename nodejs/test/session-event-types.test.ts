@@ -97,7 +97,7 @@ describe("Session event type exports (#1156)", () => {
 
         expect(data.toolName).toBe("shell");
         expect(data.toolCallId).toBe("call-1");
-        expect(data.arguments?.command).toBe("ls");
+        expect(data.arguments).toEqual({ command: "ls" });
         expect(data.mcpServerName).toBe("filesystem");
         expect(data.mcpToolName).toBe("list_dir");
         expect(data.turnId).toBe("turn-1");

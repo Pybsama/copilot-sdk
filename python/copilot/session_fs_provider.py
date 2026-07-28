@@ -34,6 +34,9 @@ from .generated.rpc import (
     SessionFSReadFileResult,
     SessionFSSqliteExistsResult,
     SessionFSSqliteQueryType,
+    SessionFSSqliteTransactionError,
+    SessionFSSqliteTransactionErrorClass,
+    SessionFSSqliteTransactionResult,
     SessionFSStatResult,
 )
 from .generated.rpc import (
@@ -292,6 +295,21 @@ class _SessionFsAdapter:
             rows=result.rows,
             rows_affected=result.rows_affected,
             last_insert_rowid=result.last_insert_rowid,
+        )
+
+    async def sqlite_transaction(self, params: Any) -> SessionFSSqliteTransactionResult:
+        # This SDK's provider interface exposes no atomic-transaction hook, so
+        # the batch is refused outright rather than applied non-atomically.
+        return SessionFSSqliteTransactionResult(
+            results=[],
+            error=SessionFSSqliteTransactionError(
+                error_class=SessionFSSqliteTransactionErrorClass.FATAL,
+                message=(
+                    "Atomic SQLite transactions are not supported by this SessionFs provider"
+                    if isinstance(self._p, SessionFsSqliteProvider)
+                    else "SQLite is not supported by this SessionFs provider"
+                ),
+            ),
         )
 
     async def sqlite_exists(self, params: Any) -> SessionFSSqliteExistsResult:
