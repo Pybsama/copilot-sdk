@@ -11,11 +11,24 @@ import { CopilotSession } from "../src/session.js";
 import {
     defineFactory,
     FactoryResumeError,
+    isFactoryRunTerminal,
     type FactoryAgentOptions,
     type FactoryContext,
     type FactoryDefinition,
     type JsonValue,
 } from "../src/factory.js";
+
+/** Builds a `factory.run_updated` invalidation event for a run. */
+function runUpdatedEvent(runId: string, revision: number): Record<string, unknown> {
+    return {
+        type: "factory.run_updated",
+        id: `event-${runId}-${revision}`,
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        ephemeral: true,
+        data: { runId, revision },
+    };
+}
 
 async function stopClient(client: CopilotClient): Promise<void> {
     await client.stop();
@@ -1687,5 +1700,172 @@ describe("factories", () => {
         } as never);
 
         await expect(session.factory.resume("run-execution-error")).resolves.toEqual(envelope);
+    });
+});
+
+describe("factory run settlement", () => {
+    it.each([
+        ["completed", true],
+        ["error", true],
+        ["halted", true],
+        ["cancelled", true],
+        ["pending", false],
+        ["running", false],
+    ] as const)("classifies %s as terminal=%s", (status, expected) => {
+        expect(isFactoryRunTerminal(status)).toBe(expected);
+    });
+
+    it("resolves immediately when the run has already settled", async () => {
+        const envelope = { runId: "run-settled", status: "completed" as const, result: 42 };
+        const sendRequest = vi.fn(async () => envelope);
+        const session = new CopilotSession("session-wait-settled", { sendRequest } as never);
+
+        await expect(session.factory.waitForRun("run-settled")).resolves.toEqual(envelope);
+        expect(sendRequest).toHaveBeenCalledTimes(1);
+        expect(sendRequest).toHaveBeenCalledWith("session.factory.getRun", {
+            sessionId: session.sessionId,
+            runId: "run-settled",
+        });
+    });
+
+    it("waits for a running run to reach a terminal status", async () => {
+        const running = { runId: "run-wait", status: "running" as const };
+        const terminal = { runId: "run-wait", status: "completed" as const, result: "done" };
+        let current: unknown = running;
+        const sendRequest = vi.fn(async () => current);
+        const session = new CopilotSession("session-wait-running", { sendRequest } as never);
+
+        const settled = session.factory.waitForRun("run-wait");
+        // The first read observed a running envelope, so the wait is still pending.
+        await vi.waitFor(() => expect(sendRequest).toHaveBeenCalledTimes(1));
+
+        // An invalidation event for an unrelated run must not trigger a re-read.
+        (session as never as { _dispatchEvent(event: unknown): void })._dispatchEvent(
+            runUpdatedEvent("some-other-run", 2)
+        );
+        expect(sendRequest).toHaveBeenCalledTimes(1);
+
+        current = terminal;
+        (session as never as { _dispatchEvent(event: unknown): void })._dispatchEvent(
+            runUpdatedEvent("run-wait", 3)
+        );
+
+        await expect(settled).resolves.toEqual(terminal);
+    });
+
+    it("stops watching once the run settles", async () => {
+        const running = { runId: "run-unsub", status: "running" as const };
+        const terminal = { runId: "run-unsub", status: "error" as const, error: "body failed" };
+        let current: unknown = running;
+        const sendRequest = vi.fn(async () => current);
+        const session = new CopilotSession("session-wait-unsub", { sendRequest } as never);
+        const handlersFor = (): Set<unknown> | undefined =>
+            (
+                session as never as {
+                    typedEventHandlers: Map<string, Set<unknown>>;
+                }
+            ).typedEventHandlers.get("factory.run_updated");
+
+        const settled = session.factory.waitForRun("run-unsub");
+        await vi.waitFor(() => expect(sendRequest).toHaveBeenCalledTimes(1));
+        expect(handlersFor()?.size ?? 0).toBe(1);
+
+        current = terminal;
+        (session as never as { _dispatchEvent(event: unknown): void })._dispatchEvent(
+            runUpdatedEvent("run-unsub", 2)
+        );
+        await expect(settled).resolves.toEqual(terminal);
+
+        // The subscription must be released, or every completed wait leaks a
+        // listener for the lifetime of the session.
+        expect(handlersFor()?.size ?? 0).toBe(0);
+
+        const callsAtSettlement = sendRequest.mock.calls.length;
+        // A late event for a settled run must not provoke another read.
+        (session as never as { _dispatchEvent(event: unknown): void })._dispatchEvent(
+            runUpdatedEvent("run-unsub", 3)
+        );
+        expect(sendRequest).toHaveBeenCalledTimes(callsAtSettlement);
+    });
+
+    it("rejects when the signal is already aborted and never reads", async () => {
+        const sendRequest = vi.fn(async () => ({ runId: "run-pre", status: "running" }));
+        const session = new CopilotSession("session-wait-pre-abort", { sendRequest } as never);
+
+        await expect(
+            session.factory.waitForRun("run-pre", { signal: AbortSignal.abort() })
+        ).rejects.toThrow();
+        expect(sendRequest).not.toHaveBeenCalled();
+    });
+
+    it("rejects when aborted while waiting, leaving the run untouched", async () => {
+        const sendRequest = vi.fn(async () => ({ runId: "run-abort", status: "running" }));
+        const session = new CopilotSession("session-wait-abort", { sendRequest } as never);
+        const controller = new AbortController();
+
+        const settled = session.factory.waitForRun("run-abort", { signal: controller.signal });
+        await vi.waitFor(() => expect(sendRequest).toHaveBeenCalledTimes(1));
+
+        controller.abort();
+        await expect(settled).rejects.toThrow();
+        // Aborting the wait must not cancel the run.
+        expect(sendRequest).not.toHaveBeenCalledWith(
+            "session.factory.cancel",
+            expect.anything()
+        );
+    });
+
+    it("propagates a read failure", async () => {
+        const sendRequest = vi.fn(async () => {
+            throw new Error("factory_storage_unavailable");
+        });
+        const session = new CopilotSession("session-wait-error", { sendRequest } as never);
+
+        await expect(session.factory.waitForRun("run-broken")).rejects.toThrow(
+            "factory_storage_unavailable"
+        );
+    });
+
+    it("collapses a burst of invalidation events into one in-flight read", async () => {
+        const running = { runId: "run-burst", status: "running" as const };
+        const terminal = { runId: "run-burst", status: "completed" as const };
+        let current: unknown = running;
+        let release: (() => void) | undefined;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        let readCount = 0;
+        const sendRequest = vi.fn(async () => {
+            readCount += 1;
+            if (readCount === 2) {
+                await gate;
+            }
+            // Reads 1 and 2 observe a running run; only the coalesced third
+            // read observes the terminal one.
+            return readCount >= 3 ? terminal : running;
+        });
+        const session = new CopilotSession("session-wait-burst", { sendRequest } as never);
+
+        const settled = session.factory.waitForRun("run-burst");
+        await vi.waitFor(() => expect(sendRequest).toHaveBeenCalledTimes(1));
+
+        const dispatch = (revision: number): void =>
+            (session as never as { _dispatchEvent(event: unknown): void })._dispatchEvent(
+                runUpdatedEvent("run-burst", revision)
+            );
+
+        // Second read is held open while three more events arrive; they must
+        // collapse into a single follow-up read rather than three.
+        dispatch(2);
+        await vi.waitFor(() => expect(sendRequest).toHaveBeenCalledTimes(2));
+        dispatch(3);
+        dispatch(4);
+        dispatch(5);
+        expect(sendRequest).toHaveBeenCalledTimes(2);
+
+        current = terminal;
+        release?.();
+        await expect(settled).resolves.toEqual(terminal);
+        // One initial read, the held read, and exactly one coalesced re-read
+        // standing in for all three queued events.
+        expect(sendRequest).toHaveBeenCalledTimes(3);
     });
 });

@@ -64,7 +64,9 @@ import type {
 import {
     getFactoryDefinition,
     FactoryResumeError,
+    isFactoryRunTerminal,
     type FactoryResumeErrorCode,
+    type FactoryRunResult,
     type RunOptions,
     type SessionFactoryApi,
     type FactoryContext,
@@ -447,12 +449,91 @@ export class CopilotSession {
             return response.run;
         }) as SessionFactoryApi["resume"],
         getRun: (runId) => this.rpc.factory.getRun({ runId }),
+        waitForRun: (runId, options) => this.waitForFactoryRun(runId, options?.signal),
         listRuns: async () => (await this.rpc.factory.listRuns()).runs,
         getRunDetail: (runId) => this.rpc.factory.getRunDetail({ runId }),
         getRunProgress: (runId, options = {}) =>
             this.rpc.factory.getRunProgress({ runId, ...options }),
         cancel: (runId) => this.rpc.factory.cancel({ runId }),
     };
+
+    /**
+     * Resolve when a factory run reaches a terminal status.
+     *
+     * The subscription is installed *before* the first read so a transition
+     * landing between the two cannot be missed, and re-reads are serialized so
+     * overlapping invalidation events cannot interleave — the run's revision
+     * advances once per operation, so a burst of events is common and must
+     * collapse into a single in-flight read.
+     */
+    private waitForFactoryRun(
+        runId: string,
+        signal?: AbortSignal
+    ): Promise<FactoryRunResult> {
+        const abortError = (): unknown =>
+            signal?.reason ?? new DOMException("Factory run wait was aborted", "AbortError");
+        if (signal?.aborted === true) {
+            return Promise.reject(abortError());
+        }
+
+        return new Promise<FactoryRunResult>((resolve, reject) => {
+            let settled = false;
+            let reading = false;
+            let rereadRequested = false;
+            let unsubscribe: (() => void) | undefined;
+            let onAbort: (() => void) | undefined;
+
+            const finish = (complete: () => void): void => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                unsubscribe?.();
+                if (onAbort !== undefined) {
+                    signal?.removeEventListener("abort", onAbort);
+                }
+                complete();
+            };
+
+            const read = async (): Promise<void> => {
+                if (settled) {
+                    return;
+                }
+                if (reading) {
+                    rereadRequested = true;
+                    return;
+                }
+                reading = true;
+                try {
+                    do {
+                        rereadRequested = false;
+                        const envelope = await this.rpc.factory.getRun({ runId });
+                        if (isFactoryRunTerminal(envelope.status)) {
+                            finish(() => resolve(envelope));
+                            return;
+                        }
+                    } while (rereadRequested && !settled);
+                } catch (error) {
+                    finish(() => reject(error));
+                } finally {
+                    reading = false;
+                }
+            };
+
+            if (signal !== undefined) {
+                onAbort = (): void => finish(() => reject(abortError()));
+                signal.addEventListener("abort", onAbort, { once: true });
+            }
+
+            unsubscribe = this.on("factory.run_updated", (event) => {
+                if (event.data.runId === runId) {
+                    void read();
+                }
+            });
+
+            void read();
+        });
+    }
 
     /**
      * Creates a new CopilotSession instance.

@@ -210,6 +210,25 @@ const page = await session.factory.getRunProgress(runId, {
 
 `getRun(runId)` reads the latest run envelope, and `cancel(runId)` cancels a run and returns its terminal envelope.
 
+`waitForRun(runId, options?)` resolves with the terminal envelope once the run settles into `completed`, `error`, `halted`, or `cancelled`, and resolves immediately when it has already settled:
+
+```ts
+const settled = await session.factory.waitForRun(runId);
+if (settled.status === "completed") {
+    console.log(settled.result);
+}
+```
+
+It watches `factory.run_updated` and re-reads the durable envelope rather than polling on a timer, and it collapses a burst of invalidation events into a single in-flight read. Pass a `signal` to stop waiting:
+
+```ts
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 30_000);
+const settled = await session.factory.waitForRun(runId, { signal: controller.signal });
+```
+
+Aborting rejects the wait and has no effect on the run, which keeps executing — use `cancel(runId)` to actually stop it. Because a terminal envelope is final, the resolved value never changes afterwards. `isFactoryRunTerminal(status)` exposes the same terminal-status test for callers driving their own loop.
+
 Listen for the ephemeral `factory.run_updated` event. Its `{ runId, revision }` payload is an invalidation signal. Re-read the desired API when a newer monotonic revision arrives.
 
 Revisions cover durable lifecycle, accounting, phase, agent, and progress changes. Continuous read-time fields can change without a new revision. These include `observedAt`, active-time calculations, live counts, and a live agent's status or prompt-safe activity text. Factory prompts are never exposed by these APIs. A run is visible only through the session that owns it.

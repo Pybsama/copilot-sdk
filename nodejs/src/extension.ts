@@ -40,6 +40,7 @@ export type { ExtensionInfo, FactoryLimits, FactoryMeta } from "./types.js";
 export {
     defineFactory,
     FactoryResumeError,
+    isFactoryRunTerminal,
     type RunOptions,
     type ResumeOptions,
     type FactoryResumeErrorCode,
@@ -53,6 +54,7 @@ export {
     type FactoryPipelineStage,
     type FactoryStepOptions,
     type FactoryRunResult,
+    type FactoryRunStatus,
     type FactoryRunSummary,
     type FactoryRunDetail,
     type FactoryProgressPage,

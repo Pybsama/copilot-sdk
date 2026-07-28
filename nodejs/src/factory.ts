@@ -7,6 +7,7 @@ import type {
     FactoryProgressPage,
     FactoryRunDetail,
     FactoryRunResult,
+    FactoryRunStatus,
     FactoryRunSummary,
 } from "./generated/rpc.js";
 import type { CopilotSession } from "./session.js";
@@ -25,8 +26,33 @@ export type {
     FactoryProgressPage,
     FactoryRunDetail,
     FactoryRunResult,
+    FactoryRunStatus,
     FactoryRunSummary,
 } from "./generated/rpc.js";
+
+/**
+ * Run statuses a factory run can no longer move away from.
+ *
+ * A run is either still in flight (`pending`, `running`) or settled into one of
+ * these four. Terminal state is final: once written it is never reopened, so a
+ * caller that observes one of these can stop watching the run.
+ */
+const FACTORY_TERMINAL_STATUSES: ReadonlySet<FactoryRunStatus> = new Set([
+    "completed",
+    "halted",
+    "cancelled",
+    "error",
+]);
+
+/**
+ * Whether a factory run status is terminal.
+ *
+ * @experimental Part of the experimental Agent Factories surface and may
+ * change or be removed in future SDK or CLI releases.
+ */
+export function isFactoryRunTerminal(status: FactoryRunStatus): boolean {
+    return FACTORY_TERMINAL_STATUSES.has(status);
+}
 
 declare const factoryHandleBrand: unique symbol;
 
@@ -230,6 +256,24 @@ export interface SessionFactoryApi {
     resume(runId: string, options?: ResumeOptions): Promise<FactoryRunResult>;
     /** Read the latest durable envelope for a factory run. */
     getRun(runId: string): Promise<FactoryRunResult>;
+    /**
+     * Wait for a run to settle and resolve with its terminal envelope.
+     *
+     * Resolves as soon as the run reaches `completed`, `error`, `halted`, or
+     * `cancelled`, and resolves immediately when it has already settled. A
+     * terminal envelope is final, so the resolved value never changes
+     * afterwards.
+     *
+     * This watches the run's `factory.run_updated` invalidation events and
+     * re-reads the durable envelope rather than polling on a timer. Pass a
+     * `signal` to stop waiting; aborting rejects and has no effect on the run
+     * itself, which keeps executing. Use {@link SessionFactoryApi.cancel} to
+     * actually stop it.
+     */
+    waitForRun(
+        runId: string,
+        options?: { signal?: AbortSignal }
+    ): Promise<FactoryRunResult>;
     /** List this session's durable factory runs in creation order. */
     listRuns(): Promise<FactoryRunSummary[]>;
     /** Read durable phases, direct agents, and the latest progress tail for a run. */

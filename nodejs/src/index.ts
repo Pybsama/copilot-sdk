@@ -12,7 +12,7 @@ export { CopilotClient } from "./client.js";
 export { RuntimeConnection } from "./types.js";
 export { BuiltInTools, ToolSet } from "./toolSet.js";
 export { CopilotSession, type AssistantMessageEvent } from "./session.js";
-export { defineFactory, FactoryResumeError } from "./factory.js";
+export { defineFactory, FactoryResumeError, isFactoryRunTerminal } from "./factory.js";
 export {
     Canvas,
     CanvasError,
@@ -178,6 +178,7 @@ export type {
     FactoryPipelineStage,
     FactoryStepOptions,
     FactoryRunResult,
+    FactoryRunStatus,
     FactoryRunSummary,
     FactoryRunDetail,
     FactoryProgressPage,
