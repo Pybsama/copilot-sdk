@@ -86,6 +86,7 @@ namespace GitHub.Copilot;
 [JsonDerivedType(typeof(SessionCompactionCompleteEvent), "session.compaction_complete")]
 [JsonDerivedType(typeof(SessionCompactionStartEvent), "session.compaction_start")]
 [JsonDerivedType(typeof(SessionContextChangedEvent), "session.context_changed")]
+[JsonDerivedType(typeof(SessionContextClearedEvent), "session.context_cleared")]
 [JsonDerivedType(typeof(SessionCustomAgentsUpdatedEvent), "session.custom_agents_updated")]
 [JsonDerivedType(typeof(SessionCustomNotificationEvent), "session.custom_notification")]
 [JsonDerivedType(typeof(SessionErrorEvent), "session.error")]
@@ -1671,6 +1672,19 @@ public sealed partial class McpAppToolCallCompleteEvent : SessionEvent
     /// <summary>The <c>mcp_app.tool_call_complete</c> event payload.</summary>
     [JsonPropertyName("data")]
     public required McpAppToolCallCompleteData Data { get; set; }
+}
+
+/// <summary>Context-cleared details emitted when the clear_context tool resets the conversation.</summary>
+/// <remarks>Represents the <c>session.context_cleared</c> event.</remarks>
+public sealed partial class SessionContextClearedEvent : SessionEvent
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Type => "session.context_cleared";
+
+    /// <summary>The <c>session.context_cleared</c> event payload.</summary>
+    [JsonPropertyName("data")]
+    public required SessionContextClearedData Data { get; set; }
 }
 
 /// <summary>Session initialization metadata including context and configuration.</summary>
@@ -4641,6 +4655,24 @@ public sealed partial class McpAppToolCallCompleteData
     /// <summary>MCP tool name that was invoked.</summary>
     [JsonPropertyName("toolName")]
     public required string ToolName { get; set; }
+}
+
+/// <summary>Context-cleared details emitted when the clear_context tool resets the conversation.</summary>
+public sealed partial class SessionContextClearedData
+{
+    /// <summary>Optional initial message set after clearing.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("initialMessage")]
+    public string? InitialMessage { get; set; }
+
+    /// <summary>Number of conversation messages that were cleared.</summary>
+    [JsonPropertyName("messagesCleared")]
+    public required long MessagesCleared { get; set; }
+
+    /// <summary>Runtime-injected messages re-seeded into the freshly-cleared context (e.g. self-paced loop wrappers). Persisted so a resumed session reproduces the same post-clear window instead of resurrecting the pre-clear history.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("prependMessages")]
+    public string[]? PrependMessages { get; set; }
 }
 
 /// <summary>Working directory and git context at session start.</summary>
@@ -12568,6 +12600,8 @@ public readonly struct ExtensionsLoadedExtensionStatus : IEquatable<ExtensionsLo
 [JsonSerializable(typeof(SessionCompactionStartEvent))]
 [JsonSerializable(typeof(SessionContextChangedData))]
 [JsonSerializable(typeof(SessionContextChangedEvent))]
+[JsonSerializable(typeof(SessionContextClearedData))]
+[JsonSerializable(typeof(SessionContextClearedEvent))]
 [JsonSerializable(typeof(SessionCustomAgentsUpdatedData))]
 [JsonSerializable(typeof(SessionCustomAgentsUpdatedEvent))]
 [JsonSerializable(typeof(SessionCustomNotificationData))]

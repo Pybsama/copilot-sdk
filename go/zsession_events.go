@@ -230,6 +230,7 @@ type (
 	SessionCompactionCompleteData                                  = rpc.SessionCompactionCompleteData
 	SessionCompactionStartData                                     = rpc.SessionCompactionStartData
 	SessionContextChangedData                                      = rpc.SessionContextChangedData
+	SessionContextClearedData                                      = rpc.SessionContextClearedData
 	SessionCustomAgentsUpdatedData                                 = rpc.SessionCustomAgentsUpdatedData
 	SessionCustomNotificationData                                  = rpc.SessionCustomNotificationData
 	SessionErrorData                                               = rpc.SessionErrorData
@@ -613,6 +614,7 @@ const (
 	SessionEventTypeSessionCompactionComplete                          = rpc.SessionEventTypeSessionCompactionComplete
 	SessionEventTypeSessionCompactionStart                             = rpc.SessionEventTypeSessionCompactionStart
 	SessionEventTypeSessionContextChanged                              = rpc.SessionEventTypeSessionContextChanged
+	SessionEventTypeSessionContextCleared                              = rpc.SessionEventTypeSessionContextCleared
 	SessionEventTypeSessionCustomAgentsUpdated                         = rpc.SessionEventTypeSessionCustomAgentsUpdated
 	SessionEventTypeSessionCustomNotification                          = rpc.SessionEventTypeSessionCustomNotification
 	SessionEventTypeSessionError                                       = rpc.SessionEventTypeSessionError

@@ -76,6 +76,11 @@ class Tool:
     skip_permission: bool = False
     defer: Literal["auto", "never"] | None = None
     metadata: dict[str, Any] | None = None
+    #: When true, a successful call to this tool ends the agent turn: the
+    #: runtime halts instead of feeding the result back to the model for
+    #: another round. A failed call leaves the loop running so the model can
+    #: read the error and retry.
+    is_terminal: bool = False
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -91,6 +96,7 @@ def define_tool(
     skip_permission: bool = False,
     defer: Literal["auto", "never"] | None = None,
     metadata: dict[str, Any] | None = None,
+    is_terminal: bool = False,
 ) -> Callable[[Callable[..., Any]], Tool]:
     pass
 
@@ -106,6 +112,7 @@ def define_tool(
     skip_permission: bool = False,
     defer: Literal["auto", "never"] | None = None,
     metadata: dict[str, Any] | None = None,
+    is_terminal: bool = False,
 ) -> Tool:
     pass
 
@@ -121,6 +128,7 @@ def define_tool(
     skip_permission: bool = False,
     defer: Literal["auto", "never"] | None = None,
     metadata: dict[str, Any] | None = None,
+    is_terminal: bool = False,
 ) -> Tool:
     pass
 
@@ -135,6 +143,7 @@ def define_tool(
     skip_permission: bool = False,
     defer: Literal["auto", "never"] | None = None,
     metadata: dict[str, Any] | None = None,
+    is_terminal: bool = False,
 ) -> Tool | Callable[[Callable[[Any, ToolInvocation], Any]], Tool]:
     """
     Define a tool with automatic JSON schema generation from Pydantic models.
@@ -187,6 +196,10 @@ def define_tool(
                     Keys are namespaced and not part of the stable public API; values
                     are not interpreted and may be recognized to inform host-specific
                     behavior. Unknown keys are preserved.
+        is_terminal: When True, a successful call to this tool ends the agent turn:
+                    the runtime halts instead of feeding the result back to the model
+                    for another round. A failed call leaves the loop running so the
+                    model can read the error and retry.
 
     Returns:
         A Tool instance
@@ -282,6 +295,7 @@ def define_tool(
             skip_permission=skip_permission,
             defer=defer,
             metadata=metadata,
+            is_terminal=is_terminal,
         )
 
     # If handler is provided, call decorator immediately
@@ -302,6 +316,7 @@ def define_tool(
             skip_permission=skip_permission,
             defer=defer,
             metadata=metadata,
+            is_terminal=is_terminal,
         )
 
     # Otherwise return decorator for @define_tool(...) usage

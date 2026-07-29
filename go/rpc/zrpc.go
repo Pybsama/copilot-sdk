@@ -2933,6 +2933,25 @@ type HistoryCancelBackgroundCompactionResult struct {
 	Cancelled bool `json:"cancelled"`
 }
 
+// Optional seed for the context window created by the clear.
+// Experimental: HistoryClearContextRequest is part of an experimental API and may change or
+// be removed.
+type HistoryClearContextRequest struct {
+	// First user message to deliver in the fresh context window. Delivered by the enclosing
+	// turn driver, so it is only meaningful when the call is made from inside an active turn
+	// (for example from a tool handler). Omit to start the fresh window with no seed.
+	Prompt *string `json:"prompt,omitempty"`
+}
+
+// Number of conversation messages removed by the clear.
+// Experimental: HistoryClearContextResult is part of an experimental API and may change or
+// be removed.
+type HistoryClearContextResult struct {
+	// Number of non-system, non-developer messages that were removed from the conversation.
+	// Zero when the session is remote or already empty.
+	MessagesCleared int64 `json:"messagesCleared"`
+}
+
 // Post-compaction context window usage breakdown
 // Experimental: HistoryCompactContextWindow is part of an experimental API and may change
 // or be removed.
@@ -17844,6 +17863,32 @@ func (a *HistoryAPI) CancelBackgroundCompaction(ctx context.Context) (*HistoryCa
 		return nil, err
 	}
 	var result HistoryCancelBackgroundCompactionResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ClearContext clears the session's conversation history, keeping only system and developer
+// messages, and optionally seeds the fresh context window with a first user message.
+//
+// RPC method: session.history.clearContext.
+//
+// Parameters: Optional seed for the context window created by the clear.
+//
+// Returns: Number of conversation messages removed by the clear.
+func (a *HistoryAPI) ClearContext(ctx context.Context, params *HistoryClearContextRequest) (*HistoryClearContextResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		if params.Prompt != nil {
+			req["prompt"] = *params.Prompt
+		}
+	}
+	raw, err := a.client.Request(ctx, "session.history.clearContext", req)
+	if err != nil {
+		return nil, err
+	}
+	var result HistoryClearContextResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}

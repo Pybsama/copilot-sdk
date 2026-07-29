@@ -18184,6 +18184,32 @@ export interface SessionAgentListRequest {
   includePrompt?: boolean;
 }
 /**
+ * Optional seed for the context window created by the clear.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HistoryClearContextRequest".
+ */
+/** @experimental */
+export interface HistoryClearContextRequest {
+  /**
+   * First user message to deliver in the fresh context window. Delivered by the enclosing turn driver, so it is only meaningful when the call is made from inside an active turn (for example from a tool handler). Omit to start the fresh window with no seed.
+   */
+  prompt?: string;
+}
+/**
+ * Number of conversation messages removed by the clear.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HistoryClearContextResult".
+ */
+/** @experimental */
+export interface HistoryClearContextResult {
+  /**
+   * Number of non-system, non-developer messages that were removed from the conversation. Zero when the session is remote or already empty.
+   */
+  messagesCleared: number;
+}
+/**
  * Standard MCP CallToolResult
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -20660,6 +20686,15 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
              */
             summarizeForHandoff: async (): Promise<HistorySummarizeForHandoffResult> =>
                 connection.sendRequest("session.history.summarizeForHandoff", { sessionId }),
+            /**
+             * Clears the session's conversation history, keeping only system and developer messages, and optionally seeds the fresh context window with a first user message.
+             *
+             * @param params Optional seed for the context window created by the clear.
+             *
+             * @returns Number of conversation messages removed by the clear.
+             */
+            clearContext: async (params: HistoryClearContextRequest): Promise<HistoryClearContextResult> =>
+                connection.sendRequest("session.history.clearContext", { sessionId, ...params }),
         },
         /** @experimental */
         queue: {

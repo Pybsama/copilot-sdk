@@ -4974,6 +4974,39 @@ impl<'a> SessionRpcHistory<'a> {
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
+
+    /// Clears the session's conversation history, keeping only system and developer messages, and optionally seeds the fresh context window with a first user message.
+    ///
+    /// Wire method: `session.history.clearContext`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Optional seed for the context window created by the clear.
+    ///
+    /// # Returns
+    ///
+    /// Number of conversation messages removed by the clear.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn clear_context(
+        &self,
+        params: HistoryClearContextRequest,
+    ) -> Result<HistoryClearContextResult, Error> {
+        let mut wire_params = serde_json::to_value(params)?;
+        wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());
+        let _value = self
+            .session
+            .client()
+            .call(rpc_methods::SESSION_HISTORY_CLEARCONTEXT, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
 }
 
 /// `session.instructions.*` RPCs.

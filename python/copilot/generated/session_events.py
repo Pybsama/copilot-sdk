@@ -247,6 +247,7 @@ class SessionEventType(Enum):
     SESSION_CANVAS_REMOVED = "session.canvas.removed"
     SESSION_EXTENSIONS_ATTACHMENTS_PUSHED = "session.extensions.attachments_pushed"
     MCP_APP_TOOL_CALL_COMPLETE = "mcp_app.tool_call_complete"
+    SESSION_CONTEXT_CLEARED = "session.context_cleared"
     UNKNOWN = "unknown"
 
     @classmethod
@@ -5957,6 +5958,35 @@ class SessionContextChangedData:
 
 
 @dataclass
+class SessionContextClearedData:
+    "Context-cleared details emitted when the clear_context tool resets the conversation"
+    messages_cleared: int
+    initial_message: str | None = None
+    prepend_messages: list[str] | None = None
+
+    @staticmethod
+    def from_dict(obj: Any) -> "SessionContextClearedData":
+        assert isinstance(obj, dict)
+        messages_cleared = from_int(obj.get("messagesCleared"))
+        initial_message = from_union([from_none, from_str], obj.get("initialMessage"))
+        prepend_messages = from_union([from_none, lambda x: from_list(from_str, x)], obj.get("prependMessages"))
+        return SessionContextClearedData(
+            messages_cleared=messages_cleared,
+            initial_message=initial_message,
+            prepend_messages=prepend_messages,
+        )
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["messagesCleared"] = to_int(self.messages_cleared)
+        if self.initial_message is not None:
+            result["initialMessage"] = from_union([from_none, from_str], self.initial_message)
+        if self.prepend_messages is not None:
+            result["prependMessages"] = from_union([from_none, lambda x: from_list(from_str, x)], self.prepend_messages)
+        return result
+
+
+@dataclass
 class SessionCustomAgentsUpdatedData:
     "Payload of `session.custom_agents_updated` with loaded custom agents plus non-fatal warnings and fatal errors."
     agents: list[CustomAgentsUpdatedAgent]
@@ -10048,7 +10078,7 @@ class WorkspaceFileChangedOperation(Enum):
     UPDATE = "update"
 
 
-SessionEventData = SessionStartData | SessionResumeData | SessionRemoteSteerableChangedData | SessionErrorData | SessionIdleData | SessionTitleChangedData | SessionScheduleCreatedData | SessionScheduleCancelledData | SessionScheduleRearmedData | SessionAutopilotObjectiveChangedData | SessionInfoData | SessionWarningData | SessionModelChangeData | SessionModeChangedData | SessionSessionLimitsChangedData | SessionPermissionsChangedData | SessionPlanChangedData | SessionTodosChangedData | SessionWorkspaceFileChangedData | SessionHandoffData | SessionTruncationData | SessionSnapshotRewindData | SessionShutdownData | SessionUsageCheckpointData | SessionContextChangedData | SessionUsageInfoData | SessionCompactionStartData | SessionCompactionCompleteData | SessionTaskCompleteData | UserMessageData | PendingMessagesModifiedData | AssistantTurnStartData | AssistantTurnRetryData | AssistantIntentData | AssistantServerToolProgressData | AssistantReasoningData | AssistantReasoningDeltaData | AssistantToolCallDeltaData | AssistantStreamingDeltaData | AssistantMessageData | AssistantMessageStartData | AssistantMessageDeltaData | AssistantTurnEndData | AssistantIdleData | AssistantUsageData | ModelCallFailureData | ModelCallStartData | AbortData | ToolUserRequestedData | ToolExecutionStartData | ToolExecutionPartialResultData | ToolExecutionProgressData | ToolExecutionCompleteData | ToolSearchActivatedData | SkillInvokedData | SubagentStartedData | SubagentCompletedData | SubagentFailedData | SubagentSelectedData | SubagentDeselectedData | HookStartData | HookEndData | HookProgressData | SessionBinaryAssetData | SystemMessageData | SystemNotificationData | PermissionRequestedData | PermissionCompletedData | UserInputRequestedData | UserInputCompletedData | ElicitationRequestedData | ElicitationCompletedData | SamplingRequestedData | SamplingCompletedData | McpOauthRequiredData | McpOauthCompletedData | McpHeadersRefreshRequiredData | McpHeadersRefreshCompletedData | SessionCustomNotificationData | ExternalToolRequestedData | ExternalToolCompletedData | CommandQueuedData | CommandExecuteData | CommandCompletedData | AutoModeSwitchRequestedData | AutoModeSwitchCompletedData | SessionLimitsExhaustedRequestedData | SessionLimitsExhaustedCompletedData | SessionAutoModeResolvedData | SessionManagedSettingsResolvedData | SessionManagedSettingsEnforcedData | CommandsChangedData | CapabilitiesChangedData | ExitPlanModeRequestedData | ExitPlanModeCompletedData | SessionToolsUpdatedData | SessionBackgroundTasksChangedData | FactoryRunUpdatedData | SessionSkillsLoadedData | SessionCustomAgentsUpdatedData | SessionMcpServersLoadedData | SessionMcpServerStatusChangedData | McpToolsListChangedData | McpResourcesListChangedData | McpPromptsListChangedData | SessionExtensionsLoadedData | SessionCanvasOpenedData | SessionCanvasRegistryChangedData | SessionCanvasClosedData | SessionCanvasUnavailableData | SessionCanvasRecordedData | SessionCanvasRemovedData | SessionExtensionsAttachmentsPushedData | McpAppToolCallCompleteData | RawSessionEventData | Data
+SessionEventData = SessionStartData | SessionResumeData | SessionRemoteSteerableChangedData | SessionErrorData | SessionIdleData | SessionTitleChangedData | SessionScheduleCreatedData | SessionScheduleCancelledData | SessionScheduleRearmedData | SessionAutopilotObjectiveChangedData | SessionInfoData | SessionWarningData | SessionModelChangeData | SessionModeChangedData | SessionSessionLimitsChangedData | SessionPermissionsChangedData | SessionPlanChangedData | SessionTodosChangedData | SessionWorkspaceFileChangedData | SessionHandoffData | SessionTruncationData | SessionSnapshotRewindData | SessionShutdownData | SessionUsageCheckpointData | SessionContextChangedData | SessionUsageInfoData | SessionCompactionStartData | SessionCompactionCompleteData | SessionTaskCompleteData | UserMessageData | PendingMessagesModifiedData | AssistantTurnStartData | AssistantTurnRetryData | AssistantIntentData | AssistantServerToolProgressData | AssistantReasoningData | AssistantReasoningDeltaData | AssistantToolCallDeltaData | AssistantStreamingDeltaData | AssistantMessageData | AssistantMessageStartData | AssistantMessageDeltaData | AssistantTurnEndData | AssistantIdleData | AssistantUsageData | ModelCallFailureData | ModelCallStartData | AbortData | ToolUserRequestedData | ToolExecutionStartData | ToolExecutionPartialResultData | ToolExecutionProgressData | ToolExecutionCompleteData | ToolSearchActivatedData | SkillInvokedData | SubagentStartedData | SubagentCompletedData | SubagentFailedData | SubagentSelectedData | SubagentDeselectedData | HookStartData | HookEndData | HookProgressData | SessionBinaryAssetData | SystemMessageData | SystemNotificationData | PermissionRequestedData | PermissionCompletedData | UserInputRequestedData | UserInputCompletedData | ElicitationRequestedData | ElicitationCompletedData | SamplingRequestedData | SamplingCompletedData | McpOauthRequiredData | McpOauthCompletedData | McpHeadersRefreshRequiredData | McpHeadersRefreshCompletedData | SessionCustomNotificationData | ExternalToolRequestedData | ExternalToolCompletedData | CommandQueuedData | CommandExecuteData | CommandCompletedData | AutoModeSwitchRequestedData | AutoModeSwitchCompletedData | SessionLimitsExhaustedRequestedData | SessionLimitsExhaustedCompletedData | SessionAutoModeResolvedData | SessionManagedSettingsResolvedData | SessionManagedSettingsEnforcedData | CommandsChangedData | CapabilitiesChangedData | ExitPlanModeRequestedData | ExitPlanModeCompletedData | SessionToolsUpdatedData | SessionBackgroundTasksChangedData | FactoryRunUpdatedData | SessionSkillsLoadedData | SessionCustomAgentsUpdatedData | SessionMcpServersLoadedData | SessionMcpServerStatusChangedData | McpToolsListChangedData | McpResourcesListChangedData | McpPromptsListChangedData | SessionExtensionsLoadedData | SessionCanvasOpenedData | SessionCanvasRegistryChangedData | SessionCanvasClosedData | SessionCanvasUnavailableData | SessionCanvasRecordedData | SessionCanvasRemovedData | SessionExtensionsAttachmentsPushedData | McpAppToolCallCompleteData | SessionContextClearedData | RawSessionEventData | Data
 
 
 @dataclass
@@ -10188,6 +10218,7 @@ class SessionEvent:
             case SessionEventType.SESSION_CANVAS_REMOVED: data = SessionCanvasRemovedData.from_dict(data_obj)
             case SessionEventType.SESSION_EXTENSIONS_ATTACHMENTS_PUSHED: data = SessionExtensionsAttachmentsPushedData.from_dict(data_obj)
             case SessionEventType.MCP_APP_TOOL_CALL_COMPLETE: data = McpAppToolCallCompleteData.from_dict(data_obj)
+            case SessionEventType.SESSION_CONTEXT_CLEARED: data = SessionContextClearedData.from_dict(data_obj)
             case _: data = RawSessionEventData.from_dict(data_obj)
         return SessionEvent(
             data=data,
@@ -10429,6 +10460,7 @@ __all__ = [
     "SessionCompactionCompleteData",
     "SessionCompactionStartData",
     "SessionContextChangedData",
+    "SessionContextClearedData",
     "SessionCustomAgentsUpdatedData",
     "SessionCustomNotificationData",
     "SessionErrorData",

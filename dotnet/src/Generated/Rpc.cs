@@ -12935,6 +12935,28 @@ internal sealed class SessionHistorySummarizeForHandoffRequest
     public string SessionId { get; set; } = string.Empty;
 }
 
+/// <summary>Number of conversation messages removed by the clear.</summary>
+[Experimental(Diagnostics.Experimental)]
+public sealed class HistoryClearContextResult
+{
+    /// <summary>Number of non-system, non-developer messages that were removed from the conversation. Zero when the session is remote or already empty.</summary>
+    [JsonPropertyName("messagesCleared")]
+    public long MessagesCleared { get; set; }
+}
+
+/// <summary>Optional seed for the context window created by the clear.</summary>
+[Experimental(Diagnostics.Experimental)]
+internal sealed class HistoryClearContextRequest
+{
+    /// <summary>First user message to deliver in the fresh context window. Delivered by the enclosing turn driver, so it is only meaningful when the call is made from inside an active turn (for example from a tool handler). Omit to start the fresh window with no seed.</summary>
+    [JsonPropertyName("prompt")]
+    public string? Prompt { get; set; }
+
+    /// <summary>Target session identifier.</summary>
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+}
+
 /// <summary>User-facing pending queue entry, with kind and display text for a queued message, slash command, or model change.</summary>
 [Experimental(Diagnostics.Experimental)]
 public sealed class QueuePendingItems
@@ -27233,6 +27255,18 @@ public sealed class HistoryApi
         var request = new SessionHistorySummarizeForHandoffRequest { SessionId = _session.SessionId };
         return await CopilotClient.InvokeRpcAsync<HistorySummarizeForHandoffResult>(_session.Rpc, "session.history.summarizeForHandoff", [request], cancellationToken);
     }
+
+    /// <summary>Clears the session's conversation history, keeping only system and developer messages, and optionally seeds the fresh context window with a first user message.</summary>
+    /// <param name="prompt">First user message to deliver in the fresh context window. Delivered by the enclosing turn driver, so it is only meaningful when the call is made from inside an active turn (for example from a tool handler). Omit to start the fresh window with no seed.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Number of conversation messages removed by the clear.</returns>
+    public async Task<HistoryClearContextResult> ClearContextAsync(string? prompt = null, CancellationToken cancellationToken = default)
+    {
+        _session.ThrowIfDisposed();
+
+        var request = new HistoryClearContextRequest { SessionId = _session.SessionId, Prompt = prompt };
+        return await CopilotClient.InvokeRpcAsync<HistoryClearContextResult>(_session.Rpc, "session.history.clearContext", [request], cancellationToken);
+    }
 }
 
 /// <summary>Provides session-scoped Queue APIs.</summary>
@@ -28605,6 +28639,8 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(HandlePendingToolCallResult))]
 [JsonSerializable(typeof(HistoryAbortManualCompactionResult))]
 [JsonSerializable(typeof(HistoryCancelBackgroundCompactionResult))]
+[JsonSerializable(typeof(HistoryClearContextRequest))]
+[JsonSerializable(typeof(HistoryClearContextResult))]
 [JsonSerializable(typeof(HistoryCompactContextWindow))]
 [JsonSerializable(typeof(HistoryCompactResult))]
 [JsonSerializable(typeof(HistoryListRewindPointsResult))]

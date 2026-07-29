@@ -589,6 +589,8 @@ pub mod rpc_methods {
     pub const SESSION_HISTORY_ABORTMANUALCOMPACTION: &str = "session.history.abortManualCompaction";
     /// `session.history.summarizeForHandoff`
     pub const SESSION_HISTORY_SUMMARIZEFORHANDOFF: &str = "session.history.summarizeForHandoff";
+    /// `session.history.clearContext`
+    pub const SESSION_HISTORY_CLEARCONTEXT: &str = "session.history.clearContext";
     /// `session.queue.pendingItems`
     pub const SESSION_QUEUE_PENDINGITEMS: &str = "session.queue.pendingItems";
     /// `session.queue.snapshot`
@@ -17932,6 +17934,37 @@ pub struct WorkspacesWriteAutopilotObjectiveResult {
     pub operation: String,
 }
 
+/// Optional seed for the context window created by the clear.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryClearContextRequest {
+    /// First user message to deliver in the fresh context window. Delivered by the enclosing turn driver, so it is only meaningful when the call is made from inside an active turn (for example from a tool handler). Omit to start the fresh window with no seed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+}
+
+/// Number of conversation messages removed by the clear.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryClearContextResult {
+    /// Number of non-system, non-developer messages that were removed from the conversation. Zero when the session is remote or already empty.
+    pub messages_cleared: i64,
+}
+
 /// List of Copilot models available to the resolved user, including capabilities and billing metadata.
 ///
 /// <div class="warning">
@@ -22277,6 +22310,21 @@ pub struct SessionHistorySummarizeForHandoffParams {
 pub struct SessionHistorySummarizeForHandoffResult {
     /// Markdown summary of the conversation context produced by an LLM. Empty string when there are no messages or when the session does not support local summarization.
     pub summary: String,
+}
+
+/// Number of conversation messages removed by the clear.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionHistoryClearContextResult {
+    /// Number of non-system, non-developer messages that were removed from the conversation. Zero when the session is remote or already empty.
+    pub messages_cleared: i64,
 }
 
 /// Identifies the target session.

@@ -131,6 +131,7 @@ const (
 	SessionEventTypeSessionCompactionComplete          SessionEventType = "session.compaction_complete"
 	SessionEventTypeSessionCompactionStart             SessionEventType = "session.compaction_start"
 	SessionEventTypeSessionContextChanged              SessionEventType = "session.context_changed"
+	SessionEventTypeSessionContextCleared              SessionEventType = "session.context_cleared"
 	SessionEventTypeSessionCustomAgentsUpdated         SessionEventType = "session.custom_agents_updated"
 	SessionEventTypeSessionCustomNotification          SessionEventType = "session.custom_notification"
 	SessionEventTypeSessionError                       SessionEventType = "session.error"
@@ -396,6 +397,21 @@ type SessionCompactionStartData struct {
 func (*SessionCompactionStartData) sessionEventData() {}
 func (*SessionCompactionStartData) Type() SessionEventType {
 	return SessionEventTypeSessionCompactionStart
+}
+
+// Context-cleared details emitted when the clear_context tool resets the conversation
+type SessionContextClearedData struct {
+	// Optional initial message set after clearing
+	InitialMessage *string `json:"initialMessage,omitempty"`
+	// Number of conversation messages that were cleared
+	MessagesCleared int64 `json:"messagesCleared"`
+	// Runtime-injected messages re-seeded into the freshly-cleared context (e.g. self-paced loop wrappers). Persisted so a resumed session reproduces the same post-clear window instead of resurrecting the pre-clear history.
+	PrependMessages []string `json:"prependMessages,omitzero"`
+}
+
+func (*SessionContextClearedData) sessionEventData() {}
+func (*SessionContextClearedData) Type() SessionEventType {
+	return SessionEventTypeSessionContextCleared
 }
 
 // Conversation compaction results including success status, metrics, and optional error details
