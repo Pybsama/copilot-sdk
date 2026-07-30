@@ -545,6 +545,9 @@ export class CopilotSession {
             });
 
             pollHandle = setInterval(() => void read(), 5_000);
+            // The re-read is a safety net, not work the process owes anyone: an
+            // outstanding wait must never keep Node alive on its own.
+            pollHandle.unref?.();
             void read();
         });
     }
