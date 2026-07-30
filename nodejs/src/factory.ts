@@ -219,7 +219,12 @@ export interface ResumeOptions {
     limits?: FactoryLimits;
 }
 
-/** Machine-readable pre-execution factory resume failure. */
+/**
+ * Machine-readable pre-execution factory resume failure.
+ *
+ * @experimental Part of the experimental Agent Factories surface and may
+ * change or be removed in future SDK or CLI releases.
+ */
 export type FactoryResumeErrorCode =
     | "not_found"
     | "non_resumable"

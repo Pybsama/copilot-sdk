@@ -261,10 +261,20 @@ export type AuthInfoType =
   | "token"
   /** Authentication from a Copilot API token. */
   | "copilot-api-token";
-
+/**
+ * JSON Schema for canvas open input
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CanvasJsonSchema".
+ */
 /** @experimental */
 export type CanvasJsonSchema = JsonValue;
-
+/**
+ * Provider-supplied action result.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CanvasActionInvokeResult".
+ */
 /** @experimental */
 export type CanvasActionInvokeResult = JsonValue;
 /**
@@ -3857,6 +3867,9 @@ export interface CanvasActionInvokeRequest {
    * Action name to invoke
    */
   actionName: string;
+  /**
+   * Action input
+   */
   input?: JsonValue;
 }
 /**
@@ -3999,6 +4012,9 @@ export interface OpenCanvasInstance {
    * URL for web-rendered canvases
    */
   url?: string;
+  /**
+   * Input supplied when the instance was opened
+   */
   input?: JsonValue;
 }
 /**
@@ -4021,6 +4037,9 @@ export interface CanvasOpenRequest {
    * Caller-supplied stable instance identifier
    */
   instanceId: string;
+  /**
+   * Canvas open input
+   */
   input?: JsonValue;
 }
 /**
@@ -4091,6 +4110,9 @@ export interface CanvasProviderInvokeActionRequest {
    * Action name to invoke
    */
   actionName: string;
+  /**
+   * Action input
+   */
   input?: JsonValue;
   host?: CanvasHostContext;
   session?: CanvasSessionContext;
@@ -4119,6 +4141,9 @@ export interface CanvasProviderOpenRequest {
    * Stable caller-supplied canvas instance identifier
    */
   instanceId: string;
+  /**
+   * Canvas open input
+   */
   input?: JsonValue;
   host?: CanvasHostContext;
   session?: CanvasSessionContext;
@@ -4437,6 +4462,13 @@ export interface ConfigureSessionExtensionsParams {
    * Session to attach the extension controller delegate to.
    */
   sessionId: string;
+  /**
+   * In-process ExtensionController delegate (CLI-only optimization). Marked internal: this field is excluded from the public SDK surface. The post-SDK extension surface exposes list/enable/disable/reload via dedicated RPCs served by the runtime.
+   *
+   * @internal
+   *
+   * @internal
+   */
   controller?: JsonValue;
 }
 /**
@@ -5022,6 +5054,9 @@ export interface ExtensionContextPushInput {
    * Human-readable composer pill label
    */
   title: string;
+  /**
+   * Caller-supplied JSON payload (required, may be null but not undefined)
+   */
   payload: JsonValue;
 }
 /**
@@ -5365,6 +5400,9 @@ export interface FactoryAgentOptions {
    * Optional label distinguishing otherwise identical memoized agent calls.
    */
   label?: string;
+  /**
+   * Optional JSON Schema for structured agent output.
+   */
   schema?: JsonValue;
   /**
    * Optional model identifier for the subagent.
@@ -5401,6 +5439,9 @@ export interface FactoryAgentRequest {
  */
 /** @experimental */
 export interface FactoryAgentResult {
+  /**
+   * Agent result, omitted when the agent produced no result.
+   */
   result?: JsonValue;
 }
 /**
@@ -5486,6 +5527,9 @@ export interface FactoryExecuteRequest {
    * Opaque token identifying this factory execution attempt.
    */
   executionToken: string;
+  /**
+   * Factory input value.
+   */
   args: JsonValue;
 }
 /**
@@ -5496,6 +5540,9 @@ export interface FactoryExecuteRequest {
  */
 /** @experimental */
 export interface FactoryExecuteResult {
+  /**
+   * Factory result value.
+   */
   result?: JsonValue;
 }
 /**
@@ -5573,6 +5620,9 @@ export interface FactoryJournalGetResult {
    * Whether the journal contained the requested key.
    */
   hit: boolean;
+  /**
+   * Cached JSON result. The hit field distinguishes a cached JSON null from a miss.
+   */
   resultJson?: JsonValue;
 }
 /**
@@ -5595,6 +5645,9 @@ export interface FactoryJournalPutRequest {
    * Namespaced journal key.
    */
   key: string;
+  /**
+   * JSON result to memoize.
+   */
   resultJson: JsonValue;
 }
 /**
@@ -5843,6 +5896,9 @@ export interface FactoryRunResult {
    */
   runId: string;
   status: FactoryRunStatus;
+  /**
+   * Completed factory result.
+   */
   result?: JsonValue;
   /**
    * Error message for an errored run.
@@ -5853,6 +5909,9 @@ export interface FactoryRunResult {
    * Reason for a halted or cancelled run.
    */
   reason?: string;
+  /**
+   * Partial journal and progress snapshot for a halted, cancelled, or errored run.
+   */
   snapshot?: JsonValue;
 }
 /**
@@ -5898,6 +5957,9 @@ export interface FactoryRunRequest {
    * Registered factory name.
    */
   name: string;
+  /**
+   * Factory input value.
+   */
   args: JsonValue;
   options?: RunOptions;
 }
@@ -7714,6 +7776,11 @@ export interface McpConfigUpdateRequest {
 /** @experimental */
 /** @internal */
 export interface McpConfigureGitHubRequest {
+  /**
+   * Opaque runtime auth info for GitHub MCP configuration. Marked internal: an in-process runtime shape (configureGitHubMcp is a no-op over the wire).
+   *
+   * @internal
+   */
   authInfo: JsonValue;
 }
 /**
@@ -7797,6 +7864,9 @@ export interface McpExecuteSamplingParams {
    * Name of the MCP server that initiated the sampling request
    */
   serverName: string;
+  /**
+   * The original MCP JSON-RPC request ID (string or number). Used by the runtime to correlate the inference with the originating MCP request for telemetry; this is distinct from `requestId` (which is the schema-level cancellation handle).
+   */
   mcpRequestId: JsonValue;
   request: McpExecuteSamplingRequest;
 }
@@ -8148,8 +8218,23 @@ export interface McpRegisterExternalClientRequest {
    * Logical server name for the external client
    */
   serverName: string;
+  /**
+   * In-process MCP Client instance. Marked internal: cannot be serialized across the JSON-RPC boundary.
+   *
+   * @internal
+   */
   client: JsonValue;
+  /**
+   * In-process MCP Transport instance. Marked internal: cannot be serialized across the JSON-RPC boundary.
+   *
+   * @internal
+   */
   transport: JsonValue;
+  /**
+   * In-process server config (MCPServerConfig) paired with the in-process client/transport. Marked internal alongside its companions.
+   *
+   * @internal
+   */
   config: JsonValue;
 }
 /**
@@ -8161,6 +8246,11 @@ export interface McpRegisterExternalClientRequest {
 /** @experimental */
 /** @internal */
 export interface McpReloadWithConfigRequest {
+  /**
+   * Opaque runtime MCP reload configuration. Marked internal: an in-process runtime shape (reloadMcpServers throws over the wire).
+   *
+   * @internal
+   */
   config: JsonValue;
 }
 /**
@@ -11850,6 +11940,9 @@ export interface QueueBeginDeferredIdleDrainResult {
  */
 /** @experimental */
 export interface QueueConsumeSystemNotificationsRequest {
+  /**
+   * Opaque runtime-owned filter object.
+   */
   filter: JsonValue;
 }
 /**
@@ -12252,6 +12345,13 @@ export interface RegisterExtensionToolsParams {
    * Session to register extension tools on.
    */
   sessionId: string;
+  /**
+   * In-process ExtensionLoader handle (CLI-only optimization). Marked internal: this field is excluded from the public SDK surface. When the CLI migrates to a process-separated SDK, extension discovery/launch moves entirely into the runtime — the CLI passes pure config (search paths, disabled ids) via SessionOptions instead.
+   *
+   * @internal
+   *
+   * @internal
+   */
   loader: JsonValue;
   options?: SessionsRegisterExtensionToolsOnSessionOptions;
 }
@@ -12263,6 +12363,11 @@ export interface RegisterExtensionToolsParams {
  */
 /** @experimental */
 export interface SessionsRegisterExtensionToolsOnSessionOptions {
+  /**
+   * In-process `() => boolean` gating callback (CLI-only optimization). Marked internal: replaced by runtime-side enable/disable RPCs in the SDK migration.
+   *
+   * @internal
+   */
   enabled?: JsonValue;
 }
 /**
@@ -12274,6 +12379,13 @@ export interface SessionsRegisterExtensionToolsOnSessionOptions {
 /** @experimental */
 /** @internal */
 export interface RegisterExtensionToolsResult {
+  /**
+   * In-process unsubscribe function (CLI-only optimization). Marked internal: replaced by an explicit `extensions.unregister` RPC in the SDK migration.
+   *
+   * @internal
+   *
+   * @internal
+   */
   unsubscribe: JsonValue;
 }
 /**
@@ -12390,6 +12502,11 @@ export interface RemoteControlStatusActive {
    * Whether the MC session may steer this session.
    */
   isSteerable: boolean;
+  /**
+   * In-process prompt-manager handle (CLI-only optimization). Marked internal: this field is excluded from the public SDK surface. When the CLI migrates to a process-separated SDK, the same bidirectional prompt-routing handshake is expressed via dedicated remote-control RPCs (register/resolve) rather than a shared in-process object.
+   *
+   * @internal
+   */
   promptManager?: JsonValue;
   /**
    * True while a read-only/session-sync export is deferred, awaiting the first `user.message` before its MC session exists. Marked internal: this field is excluded from the public SDK surface and is populated only on the CLI in-process path.
@@ -13195,7 +13312,13 @@ export interface SendSystemNotificationRequest {
    * Notification text to deliver to the model.
    */
   message: string;
+  /**
+   * Optional structured notification kind.
+   */
   kind?: JsonValue;
+  /**
+   * Internal delivery options, including passive policy.
+   */
   options?: JsonValue;
 }
 /**
@@ -14185,6 +14308,11 @@ export interface SessionOpenOptions {
    * Stable integration identifier for analytics.
    */
   integrationId?: string;
+  /**
+   * ExP assignment ('flight') data injected by an SDK integrator, in the same JSON shape the Copilot CLI fetches from the experimentation service (CopilotExpAssignmentResponse). When supplied this is fed into the FeatureFlagService exactly like CLI-fetched assignments and ExP-backed flags wait for it. When absent the session does not block on ExP.
+   *
+   * @internal
+   */
   expAssignments?: JsonValue;
   /**
    * Opt-in: self-fetch and enforce enterprise managed settings at session bootstrap.
@@ -14579,6 +14707,11 @@ export interface SessionsOpenCloud {
    */
   owner?: string;
   options?: SessionOpenOptions;
+  /**
+   * In-process callback invoked when the cloud task is created (before connection). Marked internal because a function reference cannot cross the JSON-RPC boundary. Disappears in the SDK migration: the field is purely cosmetic (it flips a single CLI phase label from 'creating' to 'connecting') and the wire-clean version just drops the intermediate phase.
+   *
+   * @internal
+   */
   onTaskCreated?: JsonValue;
 }
 /**
@@ -14596,7 +14729,17 @@ export interface SessionsOpenHandoff {
   metadata: RemoteSessionMetadataValue;
   options?: SessionOpenOptions;
   taskType?: SessionsOpenHandoffTaskType;
+  /**
+   * In-process progress callback `(update) => void` invoked for each handoff step. Marked internal because a function reference cannot cross the JSON-RPC boundary. The host-side `handoffSession` is already declared as `AsyncGenerator<HandoffProgress, HandoffResult>`; the schema layer flattens it because it does not yet support streaming methods. The wire-clean replacement is to expose the AsyncGenerator directly (or use vscode-jsonrpc `$/progress` notifications) once the schema/transport layer supports it.
+   *
+   * @internal
+   */
   onProgress?: JsonValue;
+  /**
+   * In-process confirmation callback `(request) => boolean | Promise<boolean>` invoked when the handoff needs the caller to confirm a non-fatal blocker (e.g. a repository mismatch between the current working directory and the remote session). Returning `true` proceeds with the handoff; returning `false` (or omitting the callback) aborts it. Marked internal because a function reference cannot cross the JSON-RPC boundary, for the same reasons as `onProgress`.
+   *
+   * @internal
+   */
   onConfirm?: JsonValue;
 }
 /**
@@ -14612,6 +14755,13 @@ export interface SessionOpenResult {
    * Opened session ID. Omitted when status is `not_found`.
    */
   sessionId?: string;
+  /**
+   * In-process SessionClientApi handle for the opened session, returned to CLI callers as a transitional shortcut. Marked internal so the public SDK surface does not expose it; SDK consumers should construct per-session clients from `sessionId` instead.
+   *
+   * @internal
+   *
+   * @internal
+   */
   sessionApi?: JsonValue;
   /**
    * Startup prompts queued by user-level hook configs at session creation. Only populated when status is `created`; resumed sessions return an empty array.
@@ -16979,7 +17129,17 @@ export interface UIEphemeralQueryRequest {
    * Question to answer from the current conversation context.
    */
   question: string;
+  /**
+   * In-process streaming callback `(text) => void` invoked with each token as the model emits it. Marked internal: excluded from the public SDK surface. In a process-separated SDK this is replaced by a streaming RPC that yields chunks and a final answer.
+   *
+   * @internal
+   */
   onChunk?: JsonValue;
+  /**
+   * In-process `AbortSignal` forwarded to the model client to cancel an in-flight request. Marked internal: excluded from the public SDK surface. Replaced by an explicit cancellation token + cancel RPC in the SDK migration.
+   *
+   * @internal
+   */
   abortSignal?: JsonValue;
 }
 /**
@@ -17428,7 +17588,13 @@ export interface UserRequestedShellCommandResult {
  */
 /** @experimental */
 export interface UserSettingMetadata {
+  /**
+   * The effective value: the user's value if set, otherwise the default.
+   */
   value: JsonValue;
+  /**
+   * The centrally-known default for this setting (null when no default is registered).
+   */
   default: JsonValue;
   /**
    * True when the user has not set an explicit value for this setting (i.e. it is left at its default). Reflects whether the user has overridden the key, not whether the effective value happens to equal the default — a key explicitly set to a value identical to the default still reports false.
@@ -17458,6 +17624,9 @@ export interface UserSettingsGetResult {
  */
 /** @experimental */
 export interface UserSettingsSetRequest {
+  /**
+   * Partial user settings to write, as a free-form object keyed by setting name
+   */
   settings: JsonValue;
 }
 /**
@@ -17684,6 +17853,9 @@ export interface WorkspacesDiffRequest {
  */
 /** @experimental */
 export interface WorkspacesEnsureRequest {
+  /**
+   * Opaque workspace context supplied by the session host.
+   */
   context?: JsonValue;
 }
 /**
@@ -17872,6 +18044,9 @@ export interface WorkspacesTruncateSummariesRequest {
  */
 /** @experimental */
 export interface WorkspacesUpdateMetadataRequest {
+  /**
+   * Opaque workspace context supplied by the session host.
+   */
   context?: JsonValue;
   /**
    * Optional workspace display name override.

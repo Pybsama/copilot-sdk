@@ -322,7 +322,15 @@ export function normalizeSchemaForTypeScript(schema: JSONSchema7): JSONSchema7 {
         // and let json-schema-to-typescript emit the real shape, exactly as
         // this codegen did before opaque JSON was representable.
         if (isOpaqueJson(rewritten as JSONSchema7) && !hasStructuralConstraints(rewritten)) {
-            return { tsType: "JsonValue" };
+            // Keep the node's documentation metadata — replacing it wholesale
+            // would drop `description` and the stability annotations, so the
+            // generated declaration would lose its JSDoc while its siblings
+            // keep theirs.
+            stripOpaqueJsonMarker(rewritten);
+            rewritten.tsType = "JsonValue";
+            delete rewritten.type;
+            delete rewritten.additionalProperties;
+            return rewritten;
         }
         stripOpaqueJsonMarker(rewritten);
 

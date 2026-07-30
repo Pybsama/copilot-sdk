@@ -221,7 +221,7 @@ if (settled.status === "completed") {
 }
 ```
 
-It watches `factory.run_updated` and re-reads the durable envelope rather than polling on a timer, and it collapses a burst of invalidation events into a single in-flight read. Pass a `signal` to stop waiting:
+It watches `factory.run_updated` and re-reads the durable envelope on each invalidation, collapsing a burst of events into a single in-flight read. A low-frequency periodic re-read runs alongside the subscription, so a dropped or missing invalidation degrades into a slightly late resolution rather than an unbounded wait. Pass a `signal` to stop waiting:
 
 ```ts
 const controller = new AbortController();
