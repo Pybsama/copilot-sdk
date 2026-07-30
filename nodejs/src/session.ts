@@ -1363,6 +1363,12 @@ export class CopilotSession {
                         ): Promise<JsonValue> => {
                             await progress.flush();
                             if (options.volatile) {
+                                // The flush above is an await point, so an abort can land
+                                // between entering step() and running the producer. The
+                                // journaled branch is covered by awaitFactoryOperation;
+                                // this one has to check for itself, or a cancelled run
+                                // would still start new extension work.
+                                throwIfFactoryAborted(controller.signal);
                                 return producer();
                             }
                             const cached = await awaitFactoryOperation(

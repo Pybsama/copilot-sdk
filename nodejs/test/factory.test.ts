@@ -971,6 +971,49 @@ describe("factories", () => {
         expect(sendRequest).not.toHaveBeenCalled();
     });
 
+    it("does not start a volatile step producer after the run is aborted", async () => {
+        const sendRequest = vi.fn();
+        const session = new CopilotSession("session-volatile-abort", { sendRequest } as never);
+        let producerRan = false;
+        const factory = defineFactory({
+            meta: {
+                name: "volatile-abort",
+                description: "Volatile steps honour cancellation",
+                phases: [],
+            },
+            run: async ({ step, runId }) => {
+                // Abort mid-run, then attempt a volatile step. The producer must
+                // not run: cancellation has to stop new extension work starting,
+                // exactly as it does on the journaled path.
+                await session.clientSessionApis.factory!.abort({
+                    sessionId: session.sessionId,
+                    runId,
+                });
+                await step(
+                    "volatile",
+                    () => {
+                        producerRan = true;
+                        return "should not happen";
+                    },
+                    { volatile: true }
+                );
+                return "completed";
+            },
+        });
+        session.registerFactories([factory]);
+
+        await expect(
+            session.clientSessionApis.factory!.execute({
+                sessionId: session.sessionId,
+                name: "volatile-abort",
+                runId: "run-volatile-abort",
+                executionToken: "execution-token",
+                args: {},
+            })
+        ).rejects.toThrow();
+        expect(producerRan).toBe(false);
+    });
+
     it("rejects a factory result array with an extra own key", async () => {
         const factory = defineFactory({
             meta: {
