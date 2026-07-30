@@ -7,6 +7,8 @@ import type { MessageConnection } from "vscode-jsonrpc/node.js";
 
 import type { AbortReason, Attachment, ContextTier, EmbeddedBlobResourceContents, EmbeddedTextResourceContents, McpServerSource, McpServerStatus, PermissionPromptRequest, PermissionRule, ReasoningSummary, SessionEvent, SessionLimitsConfig, SessionMode, ShutdownType, SkillSource, UserToolSessionApproval, Verbosity } from "./session-events.js";
 
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
 /**
  * Initial authentication info for the session.
  *
@@ -259,6 +261,12 @@ export type AuthInfoType =
   | "token"
   /** Authentication from a Copilot API token. */
   | "copilot-api-token";
+
+/** @experimental */
+export type CanvasJsonSchema = JsonValue;
+
+/** @experimental */
+export type CanvasActionInvokeResult = JsonValue;
 /**
  * Coarse command category for grouping and behavior: runtime built-in, skill-backed command, or SDK/client-owned command
  *
@@ -3446,7 +3454,7 @@ export interface AgentInfo {
    * @experimental
    */
   mcpServers?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
   /**
    * Skill names preloaded into this agent's context. Omitted means none.
@@ -3834,16 +3842,6 @@ export interface CanvasAction {
   inputSchema?: CanvasJsonSchema;
 }
 /**
- * JSON Schema for canvas open input
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CanvasJsonSchema".
- */
-/** @experimental */
-export interface CanvasJsonSchema {
-  [k: string]: unknown | undefined;
-}
-/**
  * Canvas action invocation parameters.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -3859,22 +3857,7 @@ export interface CanvasActionInvokeRequest {
    * Action name to invoke
    */
   actionName: string;
-  /**
-   * Action input
-   */
-  input?: {
-    [k: string]: unknown | undefined;
-  };
-}
-/**
- * Provider-supplied action result.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CanvasActionInvokeResult".
- */
-/** @experimental */
-export interface CanvasActionInvokeResult {
-  [k: string]: unknown | undefined;
+  input?: JsonValue;
 }
 /**
  * Canvas close parameters.
@@ -4016,12 +3999,7 @@ export interface OpenCanvasInstance {
    * URL for web-rendered canvases
    */
   url?: string;
-  /**
-   * Input supplied when the instance was opened
-   */
-  input?: {
-    [k: string]: unknown | undefined;
-  };
+  input?: JsonValue;
 }
 /**
  * Canvas open parameters.
@@ -4043,12 +4021,7 @@ export interface CanvasOpenRequest {
    * Caller-supplied stable instance identifier
    */
   instanceId: string;
-  /**
-   * Canvas open input
-   */
-  input?: {
-    [k: string]: unknown | undefined;
-  };
+  input?: JsonValue;
 }
 /**
  * Canvas close parameters sent to the provider.
@@ -4118,12 +4091,7 @@ export interface CanvasProviderInvokeActionRequest {
    * Action name to invoke
    */
   actionName: string;
-  /**
-   * Action input
-   */
-  input?: {
-    [k: string]: unknown | undefined;
-  };
+  input?: JsonValue;
   host?: CanvasHostContext;
   session?: CanvasSessionContext;
 }
@@ -4151,12 +4119,7 @@ export interface CanvasProviderOpenRequest {
    * Stable caller-supplied canvas instance identifier
    */
   instanceId: string;
-  /**
-   * Canvas open input
-   */
-  input?: {
-    [k: string]: unknown | undefined;
-  };
+  input?: JsonValue;
   host?: CanvasHostContext;
   session?: CanvasSessionContext;
 }
@@ -4474,16 +4437,7 @@ export interface ConfigureSessionExtensionsParams {
    * Session to attach the extension controller delegate to.
    */
   sessionId: string;
-  /**
-   * In-process ExtensionController delegate (CLI-only optimization). Marked internal: this field is excluded from the public SDK surface. The post-SDK extension surface exposes list/enable/disable/reload via dedicated RPCs served by the runtime.
-   *
-   * @internal
-   *
-   * @internal
-   */
-  controller?: {
-    [k: string]: unknown | undefined;
-  };
+  controller?: JsonValue;
 }
 /**
  * Metadata for a connected remote session.
@@ -4728,7 +4682,7 @@ export interface CurrentToolMetadata {
    * JSON Schema for tool input
    */
   input_schema?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
   /**
    * Whether the tool is loaded on demand via tool search
@@ -5068,12 +5022,7 @@ export interface ExtensionContextPushInput {
    * Human-readable composer pill label
    */
   title: string;
-  /**
-   * Caller-supplied JSON payload (required, may be null but not undefined)
-   */
-  payload: {
-    [k: string]: unknown | undefined;
-  };
+  payload: JsonValue;
 }
 /**
  * Extensions discovered for the session, with their current status.
@@ -5142,7 +5091,7 @@ export interface ExternalToolTextResultForLlm {
    * Optional tool-specific telemetry
    */
   toolTelemetry?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
   /**
    * Base64-encoded binary results returned to the model
@@ -5182,7 +5131,7 @@ export interface ExternalToolTextResultForLlmBinaryResultsForLlm {
    * Optional metadata from the producing tool.
    */
   metadata?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -5416,12 +5365,7 @@ export interface FactoryAgentOptions {
    * Optional label distinguishing otherwise identical memoized agent calls.
    */
   label?: string;
-  /**
-   * Optional JSON Schema for structured agent output.
-   */
-  schema?: {
-    [k: string]: unknown | undefined;
-  };
+  schema?: JsonValue;
   /**
    * Optional model identifier for the subagent.
    */
@@ -5457,12 +5401,7 @@ export interface FactoryAgentRequest {
  */
 /** @experimental */
 export interface FactoryAgentResult {
-  /**
-   * Agent result, omitted when the agent produced no result.
-   */
-  result?: {
-    [k: string]: unknown | undefined;
-  };
+  result?: JsonValue;
 }
 /**
  * Prompt-safe durable identity and live status for a direct factory agent.
@@ -5547,12 +5486,7 @@ export interface FactoryExecuteRequest {
    * Opaque token identifying this factory execution attempt.
    */
   executionToken: string;
-  /**
-   * Factory input value.
-   */
-  args: {
-    [k: string]: unknown | undefined;
-  };
+  args: JsonValue;
 }
 /**
  * Result returned by an extension factory closure.
@@ -5562,12 +5496,7 @@ export interface FactoryExecuteRequest {
  */
 /** @experimental */
 export interface FactoryExecuteResult {
-  /**
-   * Factory result value.
-   */
-  result?: {
-    [k: string]: unknown | undefined;
-  };
+  result?: JsonValue;
 }
 /**
  * Parameters for paging factory progress.
@@ -5644,12 +5573,7 @@ export interface FactoryJournalGetResult {
    * Whether the journal contained the requested key.
    */
   hit: boolean;
-  /**
-   * Cached JSON result. The hit field distinguishes a cached JSON null from a miss.
-   */
-  resultJson?: {
-    [k: string]: unknown | undefined;
-  };
+  resultJson?: JsonValue;
 }
 /**
  * Parameters for storing a factory journal entry.
@@ -5671,12 +5595,7 @@ export interface FactoryJournalPutRequest {
    * Namespaced journal key.
    */
   key: string;
-  /**
-   * JSON result to memoize.
-   */
-  resultJson: {
-    [k: string]: unknown | undefined;
-  };
+  resultJson: JsonValue;
 }
 /**
  * Empty parameters for listing factory runs.
@@ -5924,12 +5843,7 @@ export interface FactoryRunResult {
    */
   runId: string;
   status: FactoryRunStatus;
-  /**
-   * Completed factory result.
-   */
-  result?: {
-    [k: string]: unknown | undefined;
-  };
+  result?: JsonValue;
   /**
    * Error message for an errored run.
    */
@@ -5939,12 +5853,7 @@ export interface FactoryRunResult {
    * Reason for a halted or cancelled run.
    */
   reason?: string;
-  /**
-   * Partial journal and progress snapshot for a halted, cancelled, or errored run.
-   */
-  snapshot?: {
-    [k: string]: unknown | undefined;
-  };
+  snapshot?: JsonValue;
 }
 /**
  * Full factory run observability detail.
@@ -5989,12 +5898,7 @@ export interface FactoryRunRequest {
    * Registered factory name.
    */
   name: string;
-  /**
-   * Factory input value.
-   */
-  args: {
-    [k: string]: unknown | undefined;
-  };
+  args: JsonValue;
   options?: RunOptions;
 }
 /**
@@ -6543,7 +6447,7 @@ export interface HistoryTruncateResult {
 export interface HookInvokeRequest {
   sessionId: string;
   hookType: HookType;
-  input: unknown;
+  input: JsonValue;
 }
 /**
  * Optional output returned by an SDK callback hook.
@@ -6554,7 +6458,7 @@ export interface HookInvokeRequest {
 /** @experimental */
 /** @internal */
 export interface HookInvokeResponse {
-  output?: unknown;
+  output?: JsonValue;
 }
 /**
  * Installed plugin record from global state, with marketplace, version, install time, enabled state, cache path, and source.
@@ -7336,7 +7240,7 @@ export interface McpAppsCallToolRequest {
    * Tool arguments
    */
   arguments?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
   /**
    * **Required.** Server whose ui:// view issued the request. Per SEP-1865 ('callable by the app from this server only'), the call is rejected when this differs from `serverName`, and rejected outright when missing.
@@ -7481,7 +7385,7 @@ export interface McpAppsListToolsResult {
    * App-callable tools from the server
    */
   tools: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   }[];
 }
 /**
@@ -7542,7 +7446,7 @@ export interface McpAppsResourceContent {
    * Resource-level metadata (CSP, permissions, etc.)
    */
   _meta?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -7810,14 +7714,7 @@ export interface McpConfigUpdateRequest {
 /** @experimental */
 /** @internal */
 export interface McpConfigureGitHubRequest {
-  /**
-   * Opaque runtime auth info for GitHub MCP configuration. Marked internal: an in-process runtime shape (configureGitHubMcp is a no-op over the wire).
-   *
-   * @internal
-   */
-  authInfo: {
-    [k: string]: unknown | undefined;
-  };
+  authInfo: JsonValue;
 }
 /**
  * Result of configuring GitHub MCP.
@@ -7900,12 +7797,7 @@ export interface McpExecuteSamplingParams {
    * Name of the MCP server that initiated the sampling request
    */
   serverName: string;
-  /**
-   * The original MCP JSON-RPC request ID (string or number). Used by the runtime to correlate the inference with the originating MCP request for telemetry; this is distinct from `requestId` (which is the schema-level cancellation handle).
-   */
-  mcpRequestId: {
-    [k: string]: unknown | undefined;
-  };
+  mcpRequestId: JsonValue;
   request: McpExecuteSamplingRequest;
 }
 /**
@@ -8256,30 +8148,9 @@ export interface McpRegisterExternalClientRequest {
    * Logical server name for the external client
    */
   serverName: string;
-  /**
-   * In-process MCP Client instance. Marked internal: cannot be serialized across the JSON-RPC boundary.
-   *
-   * @internal
-   */
-  client: {
-    [k: string]: unknown | undefined;
-  };
-  /**
-   * In-process MCP Transport instance. Marked internal: cannot be serialized across the JSON-RPC boundary.
-   *
-   * @internal
-   */
-  transport: {
-    [k: string]: unknown | undefined;
-  };
-  /**
-   * In-process server config (MCPServerConfig) paired with the in-process client/transport. Marked internal alongside its companions.
-   *
-   * @internal
-   */
-  config: {
-    [k: string]: unknown | undefined;
-  };
+  client: JsonValue;
+  transport: JsonValue;
+  config: JsonValue;
 }
 /**
  * Opaque MCP reload configuration.
@@ -8290,14 +8161,7 @@ export interface McpRegisterExternalClientRequest {
 /** @experimental */
 /** @internal */
 export interface McpReloadWithConfigRequest {
-  /**
-   * Opaque runtime MCP reload configuration. Marked internal: an in-process runtime shape (reloadMcpServers throws over the wire).
-   *
-   * @internal
-   */
-  config: {
-    [k: string]: unknown | undefined;
-  };
+  config: JsonValue;
 }
 /**
  * Indicates whether the auto-managed `github` MCP server was removed (false when nothing to remove).
@@ -8353,13 +8217,13 @@ export interface McpResource {
    * Resource-level metadata
    */
   _meta?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
   /**
    * Server-provided non-standard descriptor fields preserved from the MCP response
    */
   additionalProperties?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -8390,7 +8254,7 @@ export interface McpResourceIcon {
    * Server-provided non-standard icon fields preserved from the MCP response
    */
   additionalProperties?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -8417,7 +8281,7 @@ export interface McpResourceAnnotations {
    * Server-provided non-standard annotation fields preserved from the MCP response
    */
   additionalProperties?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -8448,7 +8312,7 @@ export interface McpResourceContent {
    * Resource-level metadata (CSP, permissions, etc.)
    */
   _meta?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -8556,13 +8420,13 @@ export interface McpResourceTemplate {
    * Resource-template-level metadata
    */
   _meta?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
   /**
    * Server-provided non-standard descriptor fields preserved from the MCP response
    */
   additionalProperties?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -9529,7 +9393,7 @@ export interface NameSetRequest {
 /** @experimental */
 export interface OptionsUpdateAdditionalContentExclusionPolicy {
   rules: OptionsUpdateAdditionalContentExclusionPolicyRule[];
-  last_updated_at: unknown;
+  last_updated_at: JsonValue;
   scope: OptionsUpdateAdditionalContentExclusionPolicyScope;
 }
 /**
@@ -10543,7 +10407,7 @@ export interface PermissionRulesSet {
 /** @experimental */
 export interface PermissionsConfigureAdditionalContentExclusionPolicy {
   rules: PermissionsConfigureAdditionalContentExclusionPolicyRule[];
-  last_updated_at: unknown;
+  last_updated_at: JsonValue;
   scope: PermissionsConfigureAdditionalContentExclusionPolicyScope;
 }
 /**
@@ -11354,7 +11218,7 @@ export interface ProviderAddResult {
   /**
    * Synthesized selectable model entries for the newly added BYOK models, each under its provider-qualified selection id (`provider/id`). Empty when only providers were added.
    */
-  models: unknown[];
+  models: JsonValue[];
 }
 /**
  * Custom model-provider configuration (BYOK).
@@ -11986,12 +11850,7 @@ export interface QueueBeginDeferredIdleDrainResult {
  */
 /** @experimental */
 export interface QueueConsumeSystemNotificationsRequest {
-  /**
-   * Opaque runtime-owned filter object.
-   */
-  filter: {
-    [k: string]: unknown | undefined;
-  };
+  filter: JsonValue;
 }
 /**
  * Inputs for marking session.idle deferred in native state.
@@ -12393,16 +12252,7 @@ export interface RegisterExtensionToolsParams {
    * Session to register extension tools on.
    */
   sessionId: string;
-  /**
-   * In-process ExtensionLoader handle (CLI-only optimization). Marked internal: this field is excluded from the public SDK surface. When the CLI migrates to a process-separated SDK, extension discovery/launch moves entirely into the runtime — the CLI passes pure config (search paths, disabled ids) via SessionOptions instead.
-   *
-   * @internal
-   *
-   * @internal
-   */
-  loader: {
-    [k: string]: unknown | undefined;
-  };
+  loader: JsonValue;
   options?: SessionsRegisterExtensionToolsOnSessionOptions;
 }
 /**
@@ -12413,14 +12263,7 @@ export interface RegisterExtensionToolsParams {
  */
 /** @experimental */
 export interface SessionsRegisterExtensionToolsOnSessionOptions {
-  /**
-   * In-process `() => boolean` gating callback (CLI-only optimization). Marked internal: replaced by runtime-side enable/disable RPCs in the SDK migration.
-   *
-   * @internal
-   */
-  enabled?: {
-    [k: string]: unknown | undefined;
-  };
+  enabled?: JsonValue;
 }
 /**
  * Handle for releasing the extension tool registration.
@@ -12431,16 +12274,7 @@ export interface SessionsRegisterExtensionToolsOnSessionOptions {
 /** @experimental */
 /** @internal */
 export interface RegisterExtensionToolsResult {
-  /**
-   * In-process unsubscribe function (CLI-only optimization). Marked internal: replaced by an explicit `extensions.unregister` RPC in the SDK migration.
-   *
-   * @internal
-   *
-   * @internal
-   */
-  unsubscribe: {
-    [k: string]: unknown | undefined;
-  };
+  unsubscribe: JsonValue;
 }
 /**
  * Opaque handle previously returned by `registerInterest` to release.
@@ -12556,14 +12390,7 @@ export interface RemoteControlStatusActive {
    * Whether the MC session may steer this session.
    */
   isSteerable: boolean;
-  /**
-   * In-process prompt-manager handle (CLI-only optimization). Marked internal: this field is excluded from the public SDK surface. When the CLI migrates to a process-separated SDK, the same bidirectional prompt-routing handshake is expressed via dedicated remote-control RPCs (register/resolve) rather than a shared in-process object.
-   *
-   * @internal
-   */
-  promptManager?: {
-    [k: string]: unknown | undefined;
-  };
+  promptManager?: JsonValue;
   /**
    * True while a read-only/session-sync export is deferred, awaiting the first `user.message` before its MC session exists. Marked internal: this field is excluded from the public SDK surface and is populated only on the CLI in-process path.
    *
@@ -13368,18 +13195,8 @@ export interface SendSystemNotificationRequest {
    * Notification text to deliver to the model.
    */
   message: string;
-  /**
-   * Optional structured notification kind.
-   */
-  kind?: {
-    [k: string]: unknown | undefined;
-  };
-  /**
-   * Internal delivery options, including passive policy.
-   */
-  options?: {
-    [k: string]: unknown | undefined;
-  };
+  kind?: JsonValue;
+  options?: JsonValue;
 }
 /**
  * Agents discovered across user, project, plugin, and remote sources.
@@ -13863,7 +13680,7 @@ export interface SessionFsSqliteQueryRequest {
    * Optional named bind parameters
    */
   params?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -13878,7 +13695,7 @@ export interface SessionFsSqliteQueryResult {
    * For SELECT: array of row objects. For others: empty array.
    */
   rows: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   }[];
   /**
    * Column names from the result set
@@ -13936,7 +13753,7 @@ export interface SessionFsSqliteTransactionStatement {
    * Optional named bind parameters.
    */
   params?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -14303,7 +14120,7 @@ export interface SessionModelList {
   /**
    * Available models, ordered with the most preferred default first. Includes both Copilot (CAPI) models and any registry BYOK models; a BYOK model appears under its provider-qualified selection id (`provider/id`).
    */
-  list: unknown[];
+  list: JsonValue[];
   /**
    * Cost categories for the full CAPI catalog, including picker-disabled models that Auto may select. Metadata only; entries absent from `list` are not manually selectable.
    */
@@ -14312,7 +14129,7 @@ export interface SessionModelList {
    * Per-quota snapshots returned alongside the model list, keyed by quota type.
    */
   quotaSnapshots?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
 }
 /**
@@ -14368,14 +14185,7 @@ export interface SessionOpenOptions {
    * Stable integration identifier for analytics.
    */
   integrationId?: string;
-  /**
-   * ExP assignment ('flight') data injected by an SDK integrator, in the same JSON shape the Copilot CLI fetches from the experimentation service (CopilotExpAssignmentResponse). When supplied this is fed into the FeatureFlagService exactly like CLI-fetched assignments and ExP-backed flags wait for it. When absent the session does not block on ExP.
-   *
-   * @internal
-   */
-  expAssignments?: {
-    [k: string]: unknown | undefined;
-  };
+  expAssignments?: JsonValue;
   /**
    * Opt-in: self-fetch and enforce enterprise managed settings at session bootstrap.
    */
@@ -14625,7 +14435,7 @@ export interface ShellInitScript {
 /** @experimental */
 export interface SessionOpenOptionsAdditionalContentExclusionPolicy {
   rules: SessionOpenOptionsAdditionalContentExclusionPolicyRule[];
-  last_updated_at: unknown;
+  last_updated_at: JsonValue;
   scope: SessionOpenOptionsAdditionalContentExclusionPolicyScope;
 }
 /**
@@ -14769,14 +14579,7 @@ export interface SessionsOpenCloud {
    */
   owner?: string;
   options?: SessionOpenOptions;
-  /**
-   * In-process callback invoked when the cloud task is created (before connection). Marked internal because a function reference cannot cross the JSON-RPC boundary. Disappears in the SDK migration: the field is purely cosmetic (it flips a single CLI phase label from 'creating' to 'connecting') and the wire-clean version just drops the intermediate phase.
-   *
-   * @internal
-   */
-  onTaskCreated?: {
-    [k: string]: unknown | undefined;
-  };
+  onTaskCreated?: JsonValue;
 }
 /**
  * Parameters for fetching a remote session and handing it off to a new local session.
@@ -14793,22 +14596,8 @@ export interface SessionsOpenHandoff {
   metadata: RemoteSessionMetadataValue;
   options?: SessionOpenOptions;
   taskType?: SessionsOpenHandoffTaskType;
-  /**
-   * In-process progress callback `(update) => void` invoked for each handoff step. Marked internal because a function reference cannot cross the JSON-RPC boundary. The host-side `handoffSession` is already declared as `AsyncGenerator<HandoffProgress, HandoffResult>`; the schema layer flattens it because it does not yet support streaming methods. The wire-clean replacement is to expose the AsyncGenerator directly (or use vscode-jsonrpc `$/progress` notifications) once the schema/transport layer supports it.
-   *
-   * @internal
-   */
-  onProgress?: {
-    [k: string]: unknown | undefined;
-  };
-  /**
-   * In-process confirmation callback `(request) => boolean | Promise<boolean>` invoked when the handoff needs the caller to confirm a non-fatal blocker (e.g. a repository mismatch between the current working directory and the remote session). Returning `true` proceeds with the handoff; returning `false` (or omitting the callback) aborts it. Marked internal because a function reference cannot cross the JSON-RPC boundary, for the same reasons as `onProgress`.
-   *
-   * @internal
-   */
-  onConfirm?: {
-    [k: string]: unknown | undefined;
-  };
+  onProgress?: JsonValue;
+  onConfirm?: JsonValue;
 }
 /**
  * Result of opening a session.
@@ -14823,16 +14612,7 @@ export interface SessionOpenResult {
    * Opened session ID. Omitted when status is `not_found`.
    */
   sessionId?: string;
-  /**
-   * In-process SessionClientApi handle for the opened session, returned to CLI callers as a transitional shortcut. Marked internal so the public SDK surface does not expose it; SDK consumers should construct per-session clients from `sessionId` instead.
-   *
-   * @internal
-   *
-   * @internal
-   */
-  sessionApi?: {
-    [k: string]: unknown | undefined;
-  };
+  sessionApi?: JsonValue;
   /**
    * Startup prompts queued by user-level hook configs at session creation. Only populated when status is `created`; resumed sessions return an empty array.
    */
@@ -16771,7 +16551,7 @@ export interface Tool {
    * JSON Schema for the tool's input parameters
    */
   parameters?: {
-    [k: string]: unknown | undefined;
+    [k: string]: JsonValue | undefined;
   };
   /**
    * Optional instructions for how to use this tool effectively
@@ -17199,22 +16979,8 @@ export interface UIEphemeralQueryRequest {
    * Question to answer from the current conversation context.
    */
   question: string;
-  /**
-   * In-process streaming callback `(text) => void` invoked with each token as the model emits it. Marked internal: excluded from the public SDK surface. In a process-separated SDK this is replaced by a streaming RPC that yields chunks and a final answer.
-   *
-   * @internal
-   */
-  onChunk?: {
-    [k: string]: unknown | undefined;
-  };
-  /**
-   * In-process `AbortSignal` forwarded to the model client to cancel an in-flight request. Marked internal: excluded from the public SDK surface. Replaced by an explicit cancellation token + cancel RPC in the SDK migration.
-   *
-   * @internal
-   */
-  abortSignal?: {
-    [k: string]: unknown | undefined;
-  };
+  onChunk?: JsonValue;
+  abortSignal?: JsonValue;
 }
 /**
  * Transient answer generated from current conversation context.
@@ -17662,18 +17428,8 @@ export interface UserRequestedShellCommandResult {
  */
 /** @experimental */
 export interface UserSettingMetadata {
-  /**
-   * The effective value: the user's value if set, otherwise the default.
-   */
-  value: {
-    [k: string]: unknown | undefined;
-  };
-  /**
-   * The centrally-known default for this setting (null when no default is registered).
-   */
-  default: {
-    [k: string]: unknown | undefined;
-  };
+  value: JsonValue;
+  default: JsonValue;
   /**
    * True when the user has not set an explicit value for this setting (i.e. it is left at its default). Reflects whether the user has overridden the key, not whether the effective value happens to equal the default — a key explicitly set to a value identical to the default still reports false.
    */
@@ -17702,12 +17458,7 @@ export interface UserSettingsGetResult {
  */
 /** @experimental */
 export interface UserSettingsSetRequest {
-  /**
-   * Partial user settings to write, as a free-form object keyed by setting name
-   */
-  settings: {
-    [k: string]: unknown | undefined;
-  };
+  settings: JsonValue;
 }
 /**
  * Outcome of writing user settings.
@@ -17933,12 +17684,7 @@ export interface WorkspacesDiffRequest {
  */
 /** @experimental */
 export interface WorkspacesEnsureRequest {
-  /**
-   * Opaque workspace context supplied by the session host.
-   */
-  context?: {
-    [k: string]: unknown | undefined;
-  };
+  context?: JsonValue;
 }
 /**
  * Current workspace metadata for the session, including its absolute filesystem path when available.
@@ -18126,12 +17872,7 @@ export interface WorkspacesTruncateSummariesRequest {
  */
 /** @experimental */
 export interface WorkspacesUpdateMetadataRequest {
-  /**
-   * Opaque workspace context supplied by the session host.
-   */
-  context?: {
-    [k: string]: unknown | undefined;
-  };
+  context?: JsonValue;
   /**
    * Optional workspace display name override.
    */
@@ -18191,7 +17932,7 @@ export interface SessionAgentListRequest {
  */
 /** @experimental */
 export interface SessionMcpAppsCallToolResult {
-  [k: string]: unknown | undefined;
+  [k: string]: JsonValue | undefined;
 }
 
 /** @experimental */
