@@ -2,6 +2,7 @@ package testharness
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/internal/ffihost"
 )
 
 const defaultGitHubToken = "fake-token-for-e2e-tests"
@@ -22,9 +22,7 @@ var (
 )
 
 // CLIPath returns the path to the Copilot CLI, discovering it once and caching.
-func CLIPath(t testing.TB) string {
-	t.Helper()
-
+func CLIPath() string {
 	cliPathOnce.Do(func() {
 		// Check environment variable first
 		if path := os.Getenv("COPILOT_CLI_PATH"); path != "" {
@@ -32,89 +30,21 @@ func CLIPath(t testing.TB) string {
 			return
 		}
 
-		// Look for CLI in sibling nodejs directory's node_modules. As of CLI
-		// 1.0.64-1 the @github/copilot package is a thin loader; the runnable
-		// index.js ships in the installed platform package
-		// (e.g. @github/copilot-linux-x64).
-		base := RepoPath("nodejs", "node_modules", "@github")
-		packageNames := cliPlatformPackageNames(ffihost.PrebuildsFolder())
-		cliPath = findCLIInNodeModules(base, packageNames)
+		npm := "npm"
+		if runtime.GOOS == "windows" {
+			npm = "npm.cmd"
+		}
+		command := exec.Command(npm, "run", "--silent", "prepare:runtime", "--", "--print-path")
+		command.Dir = RepoPath("nodejs")
+		output, err := command.Output()
+		if err == nil {
+			candidate := strings.TrimSpace(string(output))
+			if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+				cliPath = candidate
+			}
+		}
 	})
-
-	if fileExists(cliPath) {
-		return cliPath
-	}
-
-	if envPath := os.Getenv("COPILOT_CLI_PATH"); envPath != "" {
-		t.Fatalf("CLI not found at %q from COPILOT_CLI_PATH", envPath)
-	}
-
-	base := RepoPath("nodejs", "node_modules", "@github")
-	packageNames := cliPlatformPackageNames(ffihost.PrebuildsFolder())
-	installed := installedCLIPackageNames(base)
-	triedDescription := strings.Join(packageNames, ", ")
-	if triedDescription == "" {
-		triedDescription = "none (unsupported platform)"
-	}
-	installedDescription := strings.Join(installed, ", ")
-	if installedDescription == "" {
-		installedDescription = "none"
-	}
-	t.Fatalf(
-		"CLI not found for tests under %s (tried: %s; present: %s). Run 'npm install' in the nodejs directory, or set COPILOT_CLI_PATH.",
-		base,
-		triedDescription,
-		installedDescription,
-	)
 	return cliPath
-}
-
-func cliPlatformPackageNames(platform string) []string {
-	if platform == "" {
-		return nil
-	}
-
-	names := []string{"copilot-" + platform}
-	if !strings.HasPrefix(platform, "linux") {
-		return names
-	}
-
-	_, arch, ok := strings.Cut(platform, "-")
-	if !ok {
-		return names
-	}
-	for _, variant := range []string{"linux-" + arch, "linuxmusl-" + arch} {
-		name := "copilot-" + variant
-		if name != names[0] {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
-func findCLIInNodeModules(githubModules string, packageNames []string) string {
-	for _, packageName := range packageNames {
-		candidate := filepath.Join(githubModules, packageName, "index.js")
-		if fileExists(candidate) {
-			return candidate
-		}
-	}
-	return ""
-}
-
-func installedCLIPackageNames(githubModules string) []string {
-	entries, err := os.ReadDir(githubModules)
-	if err != nil {
-		return nil
-	}
-
-	var names []string
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "copilot-") {
-			names = append(names, entry.Name())
-		}
-	}
-	return names
 }
 
 // TestContext holds shared resources for E2E tests.
@@ -188,11 +118,24 @@ func SkipIfInProcess(t *testing.T, reason string) {
 	}
 }
 
+// SkipIfInProcessOnMacOS skips the test when E2E tests run under the in-process
+// (FFI) transport on macOS. Coverage is retained over stdio on every OS and
+// in-process on Linux and Windows.
+func SkipIfInProcessOnMacOS(t *testing.T, reason string) {
+	t.Helper()
+	if isInProcessTransport() && runtime.GOOS == "darwin" {
+		t.Skipf("unsupported over the in-process (FFI) transport on macOS: %s", reason)
+	}
+}
+
 // NewTestContext creates a new test context with isolated directories and a replaying proxy.
 func NewTestContext(t *testing.T) *TestContext {
 	t.Helper()
 
-	cliPath := CLIPath(t)
+	cliPath := CLIPath()
+	if cliPath == "" || !fileExists(cliPath) {
+		t.Fatalf("CLI not found at %s. Run 'npm install' in the nodejs directory first.", cliPath)
+	}
 
 	homeDir, err := os.MkdirTemp("", "copilot-test-config-")
 	if err != nil {
@@ -381,6 +324,11 @@ func (c *TestContext) restoreInProcessEnvironment() {
 // GetExchanges retrieves the captured HTTP exchanges from the proxy.
 func (c *TestContext) GetExchanges() ([]ParsedHttpExchange, error) {
 	return c.proxy.GetExchanges()
+}
+
+// GetRequests retrieves all captured outbound HTTP requests from the proxy.
+func (c *TestContext) GetRequests() ([]CapturedRequest, error) {
+	return c.proxy.GetRequests()
 }
 
 // WaitForExchanges waits until the proxy has captured at least the requested exchanges.

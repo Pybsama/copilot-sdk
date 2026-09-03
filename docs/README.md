@@ -26,7 +26,7 @@ How to configure and deploy the SDK for your use case.
 * [Local CLI](./setup/local-cli.md): use your own CLI binary or running instance
 * [Backend Services](./setup/backend-services.md): server-side with headless CLI over TCP
 * [GitHub OAuth](./setup/github-oauth.md): implement the OAuth flow
-* [Azure Managed Identity](./setup/azure-managed-identity.md): BYOK with Azure AI Foundry
+* [Azure Managed Identity](./setup/azure-managed-identity.md): BYOK with Microsoft Foundry
 * [Scaling & Multi-Tenancy](./setup/scaling.md): horizontal scaling, isolation patterns
 * [Multi-Tenancy & Server Deployments](./setup/multi-tenancy.md): mode: "empty", session isolation, integration IDs, sessionFs
 
@@ -63,6 +63,7 @@ Detailed API reference for each session hook.
 * [Pre-Tool Use](./hooks/pre-tool-use.md): approve, deny, or modify tool calls
 * [Post-Tool Use](./hooks/post-tool-use.md): transform tool results
 * [User Prompt Submitted](./hooks/user-prompt-submitted.md): modify or filter user messages
+* [User Prompt Transformed](./hooks/user-prompt-transformed.md): inspect or replace model-facing prompts
 * [Session Lifecycle](./hooks/session-lifecycle.md): session start and end
 * [Error Handling](./hooks/error-handling.md): custom error handling
 

@@ -29,8 +29,9 @@ runtime:
 python -m copilot download-runtime
 ```
 
-This caches the runtime binary locally. If you skip this step, the SDK will
-attempt to download it automatically on first use as a fallback.
+This caches `copilot-runtime`, its adjacent `runtime.node`, and the compatible
+`copilot` host locally. If you skip this step, the SDK downloads the bundle
+automatically on first managed stdio/TCP use.
 
 To pre-provision the native library required by the in-process (FFI) transport
 (see [In-process (FFI) transport](#in-process-ffi-transport)), pass `--in-process`:
@@ -39,15 +40,15 @@ To pre-provision the native library required by the in-process (FFI) transport
 python -m copilot download-runtime --in-process
 ```
 
-This additionally fetches the native runtime library into the versioned runtime
-cache. Stdio/TCP users never download it. When omitted, it is downloaded
-lazily on first use of the in-process transport.
+This instead provisions the compatible CLI artifact and native runtime library
+used by in-process hosting. When omitted, they are downloaded lazily on first
+use of the in-process transport.
 
 | Platform | Cache path |
 |----------|-----------|
-| Linux | `~/.cache/github-copilot-sdk/cli/<version>/copilot` |
-| macOS | `~/Library/Caches/github-copilot-sdk/cli/<version>/copilot` |
-| Windows | `%LOCALAPPDATA%\github-copilot-sdk\cli\<version>\copilot.exe` |
+| Linux | `~/.cache/github-copilot-sdk/cli/<version>/prebuilds/<platform>/` |
+| macOS | `~/Library/Caches/github-copilot-sdk/cli/<version>/prebuilds/<platform>/` |
+| Windows | `%LOCALAPPDATA%\github-copilot-sdk\cli\<version>\prebuilds\<platform>\` |
 
 ### Environment variables
 
@@ -56,7 +57,8 @@ lazily on first use of the in-process transport.
 | `COPILOT_CLI_PATH` | Use this specific binary instead of downloading |
 | `COPILOT_CLI_EXTRACT_DIR` | Override the cache directory (binary placed directly here) |
 | `COPILOT_SKIP_CLI_DOWNLOAD` | Set to `1` to disable auto-download |
-| `COPILOT_CLI_DOWNLOAD_BASE_URL` | Override the GitHub Releases download URL |
+| `COPILOT_NPM_REGISTRY_URL` | Override the npm registry used for managed out-of-process and in-process runtime downloads |
+| `COPILOT_CLI_DOWNLOAD_BASE_URL` | Override the GitHub Releases download URL used for the root CLI |
 
 ## Run the Sample
 
@@ -121,7 +123,7 @@ async def main():
     client = CopilotClient()
     await client.start()
 
-    # Create a session (on_permission_request is optional; approve_all allows every tool)
+    # approve_all is only valid when managed settings are disabled.
     session = await client.create_session(
         on_permission_request=PermissionHandler.approve_all,
         model="gpt-5",
@@ -223,6 +225,10 @@ All options are kw-only parameters:
 - `RuntimeConnection.for_uri(url, connection_token=None)` — connect to an existing CLI server (e.g. `"localhost:8080"`).
 - `RuntimeConnection.for_inprocess()` — host the runtime in-process via its native C ABI (FFI). See [In-process (FFI) transport](#in-process-ffi-transport).
 
+Managed stdio and TCP connections use the downloaded `copilot-runtime`
+executable with adjacent `runtime.node` by default. An explicit connection
+path or `COPILOT_CLI_PATH` overrides the downloaded runtime.
+
 Child-process connections (`for_stdio`/`for_tcp`) also expose a per-connection
 `env` field for the spawned process. Set it on the returned connection instead of
 the client-level `env` — setting both raises:
@@ -272,16 +278,37 @@ finally:
 These are passed as keyword arguments to `create_session()`:
 
 - `model` (str): Model to use ("gpt-5", "claude-sonnet-4.5", etc.). **Required when using custom provider.**
-- `reasoning_effort` (str): Reasoning effort level for models that support it ("low", "medium", "high", "xhigh"). Use `list_models()` to check which models support this option.
+- `capi` (CapiSessionOptions): Copilot API options. With `model="auto"`, set `auto_tier` to `"efficiency"`, `"balance"`, or `"intelligence"` to choose a routing preference. Requires a runtime with Auto tier support and V2 Auto routing. Omission preserves default behavior. See [Auto tier persistence](../docs/features/session-persistence.md#auto-tier-persistence) for resume semantics.
+- `reasoning_effort` (str): Reasoning effort level for models that support it ("low", "medium", "high", "xhigh", "max"). Use `list_models()` to check which models support this option.
 - `session_id` (str): Custom session ID
 - `tools` (list): Custom tools exposed to the CLI. Tools with `handler=None` are declaration-only and must be resolved via pending tool-call RPCs.
 - `system_message` (SystemMessageConfig): System message configuration
 - `streaming` (bool): Enable streaming delta events
 - `provider` (ProviderConfig): Custom API provider configuration (BYOK). See [Custom Providers](#custom-providers) section.
 - `infinite_sessions` (InfiniteSessionConfig): Automatic context compaction configuration
-- `on_permission_request` (callable): Optional handler called before each tool execution to approve or deny it. When omitted, permission requests are emitted as events and left pending for manual resolution. Use `PermissionHandler.approve_all` to allow everything, or provide a custom function for fine-grained control. See [Permission Handling](#permission-handling) section.
-- `on_user_input_request` (callable): Handler for user input requests from the agent (enables ask_user tool). See [User Input Requests](#user-input-requests) section.
+- `working_directory` (str | None): Working directory for the session (default: runtime process working directory).
+- `enable_session_store` (bool): Enables the cross-session store for search and retrieval across sessions. When unset in `"copilot-cli"` mode, the runtime default applies (enabled). In `"empty"` mode, defaults to disabled.
+- `github_token_provider` (callable): Acquires rotating, session-scoped GitHub tokens. Token results require a positive `expiresIn` value in seconds remaining when the callback completes; production tokens typically last eight hours. Cannot be combined with `github_token`.
+- `on_permission_request` (callable): Optional handler called before each tool execution to approve or deny it. When omitted, permission requests are emitted as events and left pending for manual resolution. `PermissionHandler.approve_all` approves requests when managed settings are disabled and raises an error when `enable_managed_settings` is true. Custom handlers can inspect `managed_approval_required` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
+- `on_user_input_request` (callable): Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.
+- `ask_user_variant` (`"legacy"` | `"elicitation"`): Selects the model-facing shape of the `ask_user` tool. Defaults to `"legacy"`; use `"elicitation"` with `on_elicitation_request`. Re-supply this option when cold-resuming a session.
 - `hooks` (SessionHooks): Hook handlers for session lifecycle events. See [Session Hooks](#session-hooks) section.
+
+```python
+async def provide_github_token(args):
+    return {
+        "kind": "token",
+        "accessToken": await acquire_token_for_host(args["host"]),
+        "expiresIn": 8 * 60 * 60,
+    }
+
+
+session = await client.create_session(github_token_provider=provide_github_token)
+```
+
+Initial acquisition runs during session creation or resume. Cancellation, provider errors, and invalid token responses reject that operation instead of falling back to ambient authentication. Idle sessions refresh only before their next credential-consuming operation; there is no background refresh timer.
+
+- `available_tools` / `excluded_tools` / `default_agent.excluded_tools` / custom-agent `tools`: MCP tools registered from `mcp_servers` are exposed to the runtime as `<server-key>-<tool-name>`. For `available_tools` and `excluded_tools`, prefer `ToolSet().add_mcp("<server-key>-<tool-name>")` or the raw `mcp:<server-key>-<tool-name>` form. For custom-agent `tools` and `default_agent.excluded_tools`, use `<server-key>-<tool-name>` directly.
 
 **Session Lifecycle Methods:**
 
@@ -346,7 +373,7 @@ async with await client.create_session(
 
 > **Note:** When using `from __future__ import annotations`, define Pydantic models at module level (not inside functions).
 
-**Low-level API (without Pydantic):**
+#### Low-level API (without Pydantic)
 
 For users who prefer manual schema definition:
 
@@ -707,9 +734,9 @@ async with await client.create_session(
     ...
 ```
 
-Available section IDs: `"identity"`, `"tone"`, `"tool_efficiency"`, `"environment_context"`, `"code_change_rules"`, `"guidelines"`, `"safety"`, `"tool_instructions"`, `"custom_instructions"`, `"last_instructions"`.
+Available section IDs: `"preamble"`, `"identity"`, `"tone"`, `"tool_efficiency"`, `"environment_context"`, `"code_change_rules"`, `"guidelines"`, `"safety"`, `"tool_instructions"`, `"custom_instructions"`, `"runtime_instructions"`, `"last_instructions"`. `"identity"` and `"tool_instructions"` are section groups that target a collection of related sub-sections as a unit; use `"preamble"` to target just the identity preamble.
 
-Each section override supports four string actions: `"replace"`, `"remove"`, `"append"`, and `"prepend"`. Unknown section IDs are handled gracefully: content is appended to additional instructions, and `"remove"` overrides are silently ignored.
+Each section override supports five string actions: `"replace"`, `"remove"`, `"append"`, `"prepend"`, and `"preserve"` (a no-op that opts an individually-addressable section out of a group-level `"remove"`). Unknown section IDs are handled gracefully: content from `"replace"`/`"append"`/`"prepend"` overrides is appended to additional instructions, and `"remove"` overrides are silently ignored.
 
 You can also pass a transform callback as the `action` instead of a string. The callback receives the current section content and returns the new content (sync or async):
 
@@ -780,7 +807,7 @@ An `on_permission_request` handler is optional when you create or resume a sessi
 
 ### Approve All (simplest)
 
-Use the built-in `PermissionHandler.approve_all` helper to allow every tool call without any checks:
+Use the built-in `PermissionHandler.approve_all` helper to approve ordinary permission requests automatically:
 
 ```python
 from copilot import CopilotClient
@@ -792,12 +819,14 @@ session = await client.create_session(
 )
 ```
 
+When `enable_managed_settings` is true for the session, `approve_all` raises an error. Use a custom handler for managed sessions; request-level `managed_approval_required` remains available for human-facing confirmation logic.
+
 ### Custom Permission Handler
 
-Provide your own function to inspect each request and apply custom logic (sync or async):
+Provide your own function to inspect each request and apply custom logic (sync or async). Check `managed_approval_required` before any automatic approval:
 
 ```python
-from copilot import PermissionRequest, PermissionRequestResult
+from copilot import PermissionNoResult, PermissionRequest, PermissionRequestResult
 from copilot.rpc import (
     PermissionDecisionApproveOnce,
     PermissionDecisionReject,
@@ -806,6 +835,9 @@ from copilot.session_events import PermissionRequestShell
 
 
 def on_permission_request(request: PermissionRequest, invocation: dict) -> PermissionRequestResult:
+    if getattr(request, "managed_approval_required", False) is True:
+        return PermissionNoResult()
+
     # ``PermissionRequest`` is a discriminated union — pattern-match on
     # the variant class to access the per-kind fields.
     match request:
@@ -828,6 +860,9 @@ Async handlers are also supported:
 async def on_permission_request(
     request: PermissionRequest, invocation: dict
 ) -> PermissionRequestResult:
+    if getattr(request, "managed_approval_required", False) is True:
+        return PermissionNoResult()
+
     # Simulate an async approval check (e.g., prompting a user over a network)
     await asyncio.sleep(0)
     return PermissionDecisionApproveOnce()
@@ -837,7 +872,8 @@ async def on_permission_request(
 
 The handler returns a ``PermissionRequestResult``, which is an alias for
 ``PermissionDecision | PermissionNoResult`` (the generated wire-level
-union of every decision variant, plus a small sentinel for v1 servers).
+union of every decision variant, plus a sentinel that suppresses this SDK
+client's response).
 Approval decisions are present-tense — they describe the decision to
 apply, not the past-tense outcome reported back on `permission.completed`
 session events.
@@ -847,7 +883,7 @@ session events.
 | `PermissionDecisionApproveOnce()`             | Allow this single request                                                                   |
 | `PermissionDecisionReject(feedback="…")`      | Deny the request (optional feedback string forwarded to the LLM)                            |
 | `PermissionDecisionUserNotAvailable()`        | Deny the request because no user is available to confirm it (the default)                   |
-| `PermissionNoResult()`                        | Leave the request unanswered (only valid with protocol v1; rejected by protocol v2 servers) |
+| `PermissionNoResult()`                        | During event-based dispatch, suppress this SDK client's response so another connected client can answer the pending request; legacy direct callbacks cannot abstain |
 
 Several richer variants (``PermissionDecisionApproveForSession``,
 ``PermissionDecisionApproveForLocation``, ``PermissionDecisionApprovePermanently``,
@@ -871,7 +907,7 @@ To let a specific custom tool bypass the permission prompt entirely, set `skip_p
 
 ## User Input Requests
 
-Enable the agent to ask questions to the user using the `ask_user` tool by providing an `on_user_input_request` handler:
+Enable the legacy question-and-answer `ask_user` tool by providing an `on_user_input_request` handler:
 
 ```python
 async def handle_user_input(request, invocation):
@@ -1130,3 +1166,23 @@ When `on_elicitation_request` is provided, the SDK automatically:
 - Reports the `elicitation` capability on the session
 - Dispatches `elicitation.requested` events to your handler
 - Auto-cancels if your handler throws an error (so the server doesn't hang)
+
+## Development
+
+Install [uv](https://docs.astral.sh/uv/) and a supported [Node.js version](../nodejs/README.md#prerequisites), then from the repository root:
+
+```bash
+cd nodejs
+npm ci
+```
+
+```bash
+cd test/harness
+npm ci
+```
+
+```bash
+cd python
+uv sync
+uv run pytest
+```

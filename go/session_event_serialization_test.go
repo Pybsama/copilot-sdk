@@ -14,6 +14,50 @@ var _ SessionEventData = (*rpc.UserMessageData)(nil)
 var _ rpc.EmbeddedTextResourceContents = EmbeddedTextResourceContents{}
 var _ EmbeddedTextResourceContents = rpc.EmbeddedTextResourceContents{}
 
+func TestSessionEventAutoTier(t *testing.T) {
+	for _, eventType := range []string{"session.start", "session.resume"} {
+		for _, tier := range []AutoTier{"", AutoTierEfficiency, AutoTierBalance, AutoTierIntelligence} {
+			t.Run(eventType+"/"+string(tier), func(t *testing.T) {
+				data := map[string]any{
+					"sessionId": "test-session", "version": 1,
+					"producer": "copilot", "copilotVersion": "1.0.82-1",
+					"startTime":  "2026-08-28T00:00:00Z",
+					"resumeTime": "2026-08-28T00:00:00Z", "eventCount": 1,
+				}
+				if tier != "" {
+					data["autoTier"] = tier
+				}
+				wire, err := json.Marshal(map[string]any{
+					"id":        "00000000-0000-0000-0000-000000000001",
+					"timestamp": "2026-08-28T00:00:00Z", "parentId": nil,
+					"type": eventType, "data": data,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var event SessionEvent
+				if err := json.Unmarshal(wire, &event); err != nil {
+					t.Fatal(err)
+				}
+				var actual *AutoTier
+				switch eventType {
+				case "session.start":
+					actual = event.Data.(*SessionStartData).AutoTier
+				case "session.resume":
+					actual = event.Data.(*SessionResumeData).AutoTier
+				}
+				if tier == "" {
+					if actual != nil {
+						t.Fatalf("expected omitted autoTier, got %v", *actual)
+					}
+				} else if actual == nil || *actual != tier {
+					t.Fatalf("expected autoTier %q, got %v", tier, actual)
+				}
+			})
+		}
+	}
+}
+
 func TestSessionEventAgentIDRoundTripsKnownEvent(t *testing.T) {
 	var event SessionEvent
 	if err := json.Unmarshal([]byte(`{
@@ -187,5 +231,71 @@ func TestRawSessionEventDataWithNilRawMarshalsAsNull(t *testing.T) {
 	}
 	if serialized["data"] != nil {
 		t.Fatalf("expected missing raw data to marshal as null, got %v", serialized["data"])
+	}
+}
+
+func TestManagedSettingsResolvedProvenanceRoundTrips(t *testing.T) {
+	sources := []ManagedSettingsResolvedSource{
+		ManagedSettingsResolvedSourceServer,
+		ManagedSettingsResolvedSourceDevice,
+		ManagedSettingsResolvedSourceClient,
+		ManagedSettingsResolvedSourceMixed,
+		ManagedSettingsResolvedSourceNone,
+	}
+	expectedSources := []string{"server", "device", "client", "mixed", "none"}
+	for i, source := range sources {
+		if string(source) != expectedSources[i] {
+			t.Fatalf("expected source %q, got %q", expectedSources[i], source)
+		}
+	}
+
+	clientManaged := true
+	resolved := SessionManagedSettingsResolvedData{
+		BypassPermissionsDisabled: true,
+		ClientManaged:             &clientManaged,
+		DeviceManaged:             false,
+		FailClosed:                false,
+		ManagedKeys:               []string{"permissions"},
+		ServerManaged:             false,
+		Source:                    ManagedSettingsResolvedSourceClient,
+	}
+	data, err := json.Marshal(resolved)
+	if err != nil {
+		t.Fatalf("failed to marshal managed settings resolution: %v", err)
+	}
+
+	var serialized map[string]any
+	if err := json.Unmarshal(data, &serialized); err != nil {
+		t.Fatalf("failed to inspect managed settings resolution: %v", err)
+	}
+	if serialized["source"] != "client" || serialized["clientManaged"] != true {
+		t.Fatalf("expected client provenance, got %v", serialized)
+	}
+
+	var roundTripped SessionManagedSettingsResolvedData
+	if err := json.Unmarshal(data, &roundTripped); err != nil {
+		t.Fatalf("failed to round-trip managed settings resolution: %v", err)
+	}
+	if roundTripped.Source != ManagedSettingsResolvedSourceClient ||
+		roundTripped.ClientManaged == nil ||
+		!*roundTripped.ClientManaged {
+		t.Fatalf("expected client provenance to round-trip, got %#v", roundTripped)
+	}
+
+	resolved.Source = ManagedSettingsResolvedSourceMixed
+	resolved.ClientManaged = nil
+	data, err = json.Marshal(resolved)
+	if err != nil {
+		t.Fatalf("failed to marshal mixed managed settings resolution: %v", err)
+	}
+	serialized = nil
+	if err := json.Unmarshal(data, &serialized); err != nil {
+		t.Fatalf("failed to inspect mixed managed settings resolution: %v", err)
+	}
+	if serialized["source"] != "mixed" {
+		t.Fatalf("expected mixed provenance, got %v", serialized["source"])
+	}
+	if _, ok := serialized["clientManaged"]; ok {
+		t.Fatalf("expected absent clientManaged to be omitted, got %v", serialized)
 	}
 }

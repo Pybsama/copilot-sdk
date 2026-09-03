@@ -4,9 +4,6 @@ env:
   PYTHONUTF8: 1
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
   workflow_call:
 
@@ -27,6 +24,7 @@ jobs:
         python-version: ["3.11"]
         transport: ["default", "inprocess"]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -52,7 +50,7 @@ jobs:
 
       - name: Install Node.js dependencies (for CLI in tests)
         working-directory: ./nodejs
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts --fetch-retries=4 --fetch-retry-mintimeout=10000 --fetch-retry-maxtimeout=60000
 
       - name: Run ruff format check
         run: uv run ruff format --check .
@@ -65,7 +63,7 @@ jobs:
 
       - name: Install test harness dependencies
         working-directory: ./test/harness
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts --fetch-retries=4 --fetch-retry-mintimeout=10000 --fetch-retry-maxtimeout=60000
 
       - name: Warm up PowerShell
         if: runner.os == 'Windows'
@@ -79,4 +77,6 @@ jobs:
       - name: Run Python SDK tests
         env:
           COPILOT_HMAC_KEY: ${{ secrets.COPILOT_DEVELOPER_CLI_INTEGRATION_HMAC_KEY }}
-        run: uv run pytest -v -s
+        # Keep each module's shared E2E client and proxy on one process while
+        # running independent modules concurrently in isolated workers.
+        run: uv run pytest -v -s -n 2 --dist=loadfile

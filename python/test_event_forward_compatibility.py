@@ -14,14 +14,19 @@ import pytest
 
 from copilot.session_events import (
     AttachmentGitHubReferenceType,
+    AutoTier,
     Data,
     ElicitationCompletedAction,
     ElicitationRequestedMode,
     ElicitationRequestedSchema,
+    ManagedSettingsResolvedSource,
     PermissionPromptRequestMemory,
     PermissionRequestMemory,
     PermissionRequestMemoryAction,
     SessionEventType,
+    SessionManagedSettingsResolvedData,
+    SessionResumeData,
+    SessionStartData,
     SessionTaskCompleteData,
     UserMessageAgentMode,
     session_event_from_dict,
@@ -31,6 +36,40 @@ from copilot.session_events import (
 
 class TestEventForwardCompatibility:
     """Test forward compatibility for unknown event types."""
+
+    @pytest.mark.parametrize("event_type", ["session.start", "session.resume"])
+    @pytest.mark.parametrize("tier", ["efficiency", "balance", "intelligence", None])
+    def test_auto_tier_lifecycle_events_round_trip(self, event_type, tier):
+        timestamp = "2026-08-28T00:00:00Z"
+        data = (
+            {
+                "copilotVersion": "1.0.82-1",
+                "producer": "copilot-agent",
+                "sessionId": str(uuid4()),
+                "startTime": timestamp,
+                "version": 1,
+            }
+            if event_type == "session.start"
+            else {"eventCount": 1, "resumeTime": timestamp}
+        )
+        if tier is not None:
+            data["autoTier"] = tier
+        event = session_event_from_dict(
+            {
+                "id": str(uuid4()),
+                "timestamp": timestamp,
+                "parentId": None,
+                "type": event_type,
+                "data": data,
+            }
+        )
+        assert isinstance(event.data, (SessionStartData, SessionResumeData))
+        assert event.data.auto_tier == (AutoTier(tier) if tier is not None else None)
+        serialized = session_event_to_dict(event)["data"]
+        if tier is None:
+            assert "autoTier" not in serialized
+        else:
+            assert serialized["autoTier"] == tier
 
     def test_session_usage_info_is_recognized(self):
         """The session.usage_info event type should be in the enum."""
@@ -135,6 +174,43 @@ class TestEventForwardCompatibility:
             properties={"answer": {"type": "string"}}, type="object"
         )
         assert schema.to_dict()["type"] == "object"
+
+    def test_managed_settings_client_provenance_round_trips(self):
+        """Managed settings events should preserve truthful client provenance."""
+        assert [source.value for source in ManagedSettingsResolvedSource] == [
+            "server",
+            "device",
+            "client",
+            "policyHelper",
+            "mixed",
+            "none",
+        ]
+
+        client = SessionManagedSettingsResolvedData(
+            bypass_permissions_disabled=True,
+            client_managed=True,
+            device_managed=False,
+            fail_closed=False,
+            managed_keys=["permissions"],
+            server_managed=False,
+            source=ManagedSettingsResolvedSource.CLIENT,
+        )
+        serialized = client.to_dict()
+        assert serialized["source"] == "client"
+        assert serialized["clientManaged"] is True
+        assert SessionManagedSettingsResolvedData.from_dict(serialized) == client
+
+        mixed = SessionManagedSettingsResolvedData(
+            bypass_permissions_disabled=True,
+            device_managed=True,
+            fail_closed=False,
+            managed_keys=["permissions"],
+            server_managed=True,
+            source=ManagedSettingsResolvedSource.MIXED,
+        )
+        serialized = mixed.to_dict()
+        assert serialized["source"] == "mixed"
+        assert "clientManaged" not in serialized
 
     def test_data_shim_preserves_raw_mapping_values(self):
         """Compatibility Data should keep arbitrary nested mappings as plain dicts."""

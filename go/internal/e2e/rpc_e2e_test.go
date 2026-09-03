@@ -10,7 +10,10 @@ import (
 )
 
 func TestRPCE2E(t *testing.T) {
-	cliPath := testharness.CLIPath(t)
+	cliPath := testharness.CLIPath()
+	if cliPath == "" {
+		t.Fatal("CLI not found. Run 'npm install' in the nodejs directory first.")
+	}
 
 	t.Run("should call RPC.Ping with typed params and result", func(t *testing.T) {
 		client := copilot.NewClient(&copilot.ClientOptions{
@@ -125,7 +128,7 @@ func TestSessionRPCE2E(t *testing.T) {
 
 		session, err := client.CreateSession(t.Context(), &copilot.SessionConfig{
 			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
-			Model:               "claude-sonnet-4.5",
+			Model:               "claude-sonnet-5",
 		})
 		if err != nil {
 			t.Fatalf("Failed to create session: %v", err)
@@ -147,7 +150,7 @@ func TestSessionRPCE2E(t *testing.T) {
 
 		session, err := client.CreateSession(t.Context(), &copilot.SessionConfig{
 			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
-			Model:               "claude-sonnet-4.5",
+			Model:               "claude-sonnet-5",
 		})
 		if err != nil {
 			t.Fatalf("Failed to create session: %v", err)
@@ -191,7 +194,7 @@ func TestSessionRPCE2E(t *testing.T) {
 
 		session, err := client.CreateSession(t.Context(), &copilot.SessionConfig{
 			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
-			Model:               "claude-sonnet-4.5",
+			Model:               "claude-sonnet-5",
 		})
 		if err != nil {
 			t.Fatalf("Failed to create session: %v", err)

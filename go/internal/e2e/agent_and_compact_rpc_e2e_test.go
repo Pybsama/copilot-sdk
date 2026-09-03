@@ -12,7 +12,10 @@ import (
 )
 
 func TestAgentSelectionRPCE2E(t *testing.T) {
-	cliPath := testharness.CLIPath(t)
+	cliPath := testharness.CLIPath()
+	if cliPath == "" {
+		t.Fatal("CLI not found. Run 'npm install' in the nodejs directory first.")
+	}
 
 	t.Run("should list available custom agents", func(t *testing.T) {
 		client := copilot.NewClient(&copilot.ClientOptions{

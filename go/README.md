@@ -20,7 +20,10 @@ go get github.com/github/copilot-sdk/go
 Try the interactive chat sample (from the repo root):
 
 ```bash
-cd go/samples
+cd nodejs
+npm ci
+export COPILOT_CLI_PATH="$(npm run --silent prepare:runtime -- --print-path)"
+cd ../go/samples
 go run chat.go
 ```
 
@@ -55,7 +58,6 @@ func main() {
     }
     defer client.Stop()
 
-    // Create a session (OnPermissionRequest is optional; ApproveAll allows every tool)
     session, err := client.CreateSession(context.Background(), &copilot.SessionConfig{
         Model:               "gpt-5",
         OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
@@ -89,6 +91,12 @@ func main() {
 }
 ```
 
+When targeting MCP tools configured through `MCPServers`, remember the runtime
+tool name is `<server-key>-<tool-name>`. For `AvailableTools` and
+`ExcludedTools`, prefer the source-qualified form
+`mcp:<server-key>-<tool-name>`. For `CustomAgents[].Tools` and
+`DefaultAgent.ExcludedTools`, use `<server-key>-<tool-name>` directly.
+
 ## Distributing your application with an embedded GitHub Copilot CLI
 
 The SDK supports bundling, using Go's `embed` package, the Copilot CLI binary within your application's distribution.
@@ -99,7 +107,7 @@ Follow these steps to embed the CLI:
 1. Run `go get -tool github.com/github/copilot-sdk/go/cmd/bundler`. This is a one-time setup step per project.
 2. Run `go tool bundler` in your build environment just before building your application.
 
-That's it! When your application calls `copilot.NewClient` without a `Connection` field (or with an empty `StdioConnection{}`) and no `COPILOT_CLI_PATH` environment variable, the SDK will automatically install the embedded CLI to a cache directory and use it for all operations.
+That's it! When your application calls `copilot.NewClient` without a `Connection` field (or with an empty `StdioConnection{}`), the SDK automatically installs the embedded `copilot-runtime` executable and adjacent `runtime.node` to a cache directory for managed child-process connections.
 
 The bundler prepares the native runtime library required by the [in-process transport](#in-process-transport-experimental). It is included in the application only when building with the `copilot_inprocess` build tag.
 
@@ -133,6 +141,9 @@ Resolution and requirements:
   always takes precedence.
 - Set `COPILOT_CLI_PATH` only when using an externally provisioned compatible runtime package; otherwise the bundled runtime is used. No `PATH` lookup is performed.
 - Embedded runtime versions are isolated in separate cache directories. Start fails loudly if the native runtime is unavailable.
+- Managed child-process start fails if the embedded `copilot-runtime` and
+  `runtime.node` pair is unavailable; explicit paths and `COPILOT_CLI_PATH`
+  remain direct overrides.
 - Linux in-process bundles include both glibc and musl runtime packages and select the matching package automatically at startup.
 - Only one native runtime version may be loaded per process.
 
@@ -190,10 +201,10 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
   - `URIConnection{URL, ConnectionToken}` — connect to an already-running runtime (no process spawned)
   - `InProcessConnection{}` — **Experimental.** Host the runtime in-process via the native FFI library instead of spawning a child process. See [In-process transport](#in-process-transport-experimental) below.
 
-  When `Path` is empty for stdio/tcp, the SDK uses the bundled CLI (or `COPILOT_CLI_PATH` env var).
+  When `Path` is empty for stdio/tcp, the SDK uses `COPILOT_CLI_PATH` when set, then the bundled `copilot-runtime` and adjacent `runtime.node`.
 
   `StdioConnection` and `TCPConnection` accept an optional connection-level `Env`. Set environment variables via **either** the client-level `Env` option or the connection's `Env`, not both (setting both panics); prefer the connection-level `Env`.
-- `WorkingDirectory` (string): Working directory for the runtime process
+- `WorkingDirectory` (string): Working directory for the runtime process (default: current process working directory)
 - `BaseDirectory` (string): Base directory for Copilot data (session state, config, etc.). Sets `COPILOT_HOME` on the spawned runtime. When empty, the runtime defaults to `~/.copilot`. Ignored with `URIConnection`. This does **not** affect where the Go SDK extracts the embedded CLI binary; use `embeddedcli.Config.Dir` for the extraction/cache location.
 - `LogLevel` (string): Log level. When empty (default), the runtime uses its own default level (the SDK does not pass `--log-level`).
 - `Env` ([]string): Environment variables for the runtime process (default: inherits from current process)
@@ -205,7 +216,7 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 **SessionConfig:**
 
 - `Model` (string): Model to use ("gpt-5", "claude-sonnet-4.5", etc.). **Required when using custom provider.**
-- `ReasoningEffort` (string): Reasoning effort level for models that support it ("low", "medium", "high", "xhigh"). Use `ListModels()` to check which models support this option.
+- `ReasoningEffort` (string): Reasoning effort level for models that support it ("low", "medium", "high", "xhigh", "max"). Use `ListModels()` to check which models support this option.
 - `SessionID` (string): Custom session ID
 - `Tools` ([]Tool): Custom tools exposed to the CLI
 - `SystemMessage` (\*SystemMessageConfig): System message configuration. Supports three modes:
@@ -215,8 +226,12 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 - `Provider` (\*ProviderConfig): Custom API provider configuration (BYOK). See [Custom Providers](#custom-providers) section.
 - `Streaming` (*bool): Enable streaming delta events (nil = runtime default)
 - `InfiniteSessions` (\*InfiniteSessionConfig): Automatic context compaction configuration
-- `OnPermissionRequest` (PermissionHandlerFunc): Optional handler called before each tool execution to approve or deny it. When nil, permission requests are emitted as events and left pending for manual resolution. Use `copilot.PermissionHandler.ApproveAll` to allow everything, or provide a custom function for fine-grained control. See [Permission Handling](#permission-handling) section.
-- `OnUserInputRequest` (UserInputHandler): Handler for user input requests from the agent (enables ask_user tool). See [User Input Requests](#user-input-requests) section.
+- `WorkingDirectory` (string): Working directory for the session (default: runtime process working directory)
+- `EnableSessionStore` (\*bool): Enables the cross-session store for search and retrieval across sessions. When unset in `ModeCopilotCli`, the runtime default applies (enabled). In `ModeEmpty`, defaults to disabled.
+- `GitHubTokenProvider` (GitHubTokenProvider): Acquires session-scoped GitHub tokens on demand. Return `GitHubTokenResult` with a positive `ExpiresIn` value (production GitHub tokens typically use `8 * 60 * 60` seconds), or `GitHubTokenCancelled`. Cannot be combined with `GitHubToken`.
+- `OnPermissionRequest` (PermissionHandlerFunc): Optional handler called before each tool execution to approve or deny it. When nil, permission requests are emitted as events and left pending for manual resolution. `copilot.PermissionHandler.ApproveAll` approves requests when managed settings are disabled and returns an error when `EnableManagedSettings` is true. Custom handlers can inspect `RequiresManagedApproval()` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
+- `OnUserInputRequest` (UserInputHandler): Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.
+- `AskUserVariant` (AskUserVariant): Selects the model-facing shape of the `ask_user` tool. The zero value preserves legacy behavior; use `AskUserVariantElicitation` with `OnElicitationRequest`.
 - `Hooks` (\*SessionHooks): Hook handlers for session lifecycle events. See [Session Hooks](#session-hooks) section.
 - `Commands` ([]CommandDefinition): Slash-commands registered for this session. See [Commands](#commands) section.
 - `OnElicitationRequest` (ElicitationHandler): Handler for elicitation requests from the server. See [Elicitation Requests](#elicitation-requests-serverclient) section.
@@ -230,6 +245,25 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 - `Streaming` (*bool): Enable streaming delta events (nil = runtime default)
 - `Commands` ([]CommandDefinition): Slash-commands. See [Commands](#commands) section.
 - `OnElicitationRequest` (ElicitationHandler): Elicitation handler. See [Elicitation Requests](#elicitation-requests-serverclient) section.
+- `AskUserVariant` (AskUserVariant): Selects the model-facing shape of the `ask_user` tool on cold resume. Re-supply `AskUserVariantElicitation` with `OnElicitationRequest`; the zero value preserves legacy behavior.
+- `GitHubTokenProvider` (GitHubTokenProvider): Replaces the session-scoped token provider when resuming. Cannot be combined with `GitHubToken`.
+
+```go
+session, err := client.CreateSession(ctx, &copilot.SessionConfig{
+    GitHubTokenProvider: func(args copilot.GitHubTokenProviderArgs) (*copilot.GitHubTokenProviderResult, error) {
+        token, err := acquireToken(args.Host)
+        if err != nil {
+            return nil, err
+        }
+        return copilot.GitHubTokenResult(&copilot.GitHubToken{
+            AccessToken: token,
+            ExpiresIn:   8 * 60 * 60,
+        }), nil
+    },
+})
+```
+
+Initial acquisition runs during session creation or resume. Cancellation, provider errors, and invalid token responses reject that operation instead of falling back to ambient authentication. Idle sessions refresh only before their next credential-consuming operation; there is no background refresh timer.
 
 ### Session
 
@@ -674,7 +708,7 @@ An `OnPermissionRequest` handler is optional when you create or resume a session
 
 ### Approve All (simplest)
 
-Use the built-in `PermissionHandler.ApproveAll` helper to allow every tool call without any checks:
+Use the built-in `PermissionHandler.ApproveAll` helper when managed settings are disabled:
 
 ```go
 session, err := client.CreateSession(context.Background(), &copilot.SessionConfig{
@@ -683,9 +717,11 @@ session, err := client.CreateSession(context.Background(), &copilot.SessionConfi
 })
 ```
 
+When `EnableManagedSettings` is true for the session, `ApproveAll` returns an error. Use a custom handler for managed sessions; request-level `RequiresManagedApproval()` remains available for human-facing confirmation logic.
+
 ### Custom Permission Handler
 
-Provide your own `PermissionHandlerFunc` to inspect each request and apply custom logic:
+Provide your own `PermissionHandlerFunc` to inspect each request and apply custom logic. Check `RequiresManagedApproval()` before any automatic approval:
 
 ```go
 import (
@@ -698,6 +734,10 @@ import (
 session, err := client.CreateSession(context.Background(), &copilot.SessionConfig{
     Model: "gpt-5",
     OnPermissionRequest: func(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+        if request.RequiresManagedApproval() {
+            return &rpc.PermissionDecisionNoResult{}, nil
+        }
+
         // Type-switch on the discriminated PermissionRequest variants to
         // access per-kind fields:
         if shell, ok := request.(*copilot.PermissionRequestShell); ok {
@@ -738,7 +778,7 @@ To let a specific custom tool bypass the permission prompt entirely, set `SkipPe
 
 ## User Input Requests
 
-Enable the agent to ask questions to the user using the `ask_user` tool by providing an `OnUserInputRequest` handler:
+Enable the legacy question-and-answer `ask_user` tool by providing an `OnUserInputRequest` handler:
 
 ```go
 session, err := client.CreateSession(context.Background(), &copilot.SessionConfig{
@@ -964,6 +1004,25 @@ Communicates with CLI via TCP socket. Useful for distributed scenarios.
 ## Environment Variables
 
 - `COPILOT_CLI_PATH` - Path to the Copilot CLI executable
+
+## Development
+
+Tests require a supported [Node.js version](../nodejs/README.md#prerequisites). From the repository root:
+
+```bash
+cd nodejs
+npm ci
+```
+
+```bash
+cd test/harness
+npm ci
+```
+
+```bash
+cd go
+./test.sh
+```
 
 ## License
 

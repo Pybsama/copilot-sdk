@@ -16,6 +16,7 @@ from .testharness import (
     E2ETestContext,
     get_final_assistant_message,
     get_next_event_of_type,
+    wait_for_condition,
 )
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -24,7 +25,7 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 class TestSessions:
     async def test_should_create_and_disconnect_sessions(self, ctx: E2ETestContext):
         session = await ctx.client.create_session(
-            on_permission_request=PermissionHandler.approve_all, model="claude-sonnet-4.5"
+            on_permission_request=PermissionHandler.approve_all, model="claude-sonnet-5"
         )
         assert session.session_id
 
@@ -32,7 +33,7 @@ class TestSessions:
         assert len(messages) > 0
         assert messages[0].type.value == "session.start"
         assert messages[0].data.session_id == session.session_id
-        assert messages[0].data.selected_model == "claude-sonnet-4.5"
+        assert messages[0].data.selected_model == "claude-sonnet-5"
 
         await session.disconnect()
 
@@ -396,19 +397,26 @@ class TestSessions:
             )
 
     async def test_should_get_session_metadata(self, ctx: E2ETestContext):
-        import asyncio
-
         # Create a session and send a message to persist it
         session = await ctx.client.create_session(
             on_permission_request=PermissionHandler.approve_all
         )
         await session.send_and_wait("Say hello")
 
-        # Small delay to ensure session file is written to disk
-        await asyncio.sleep(0.2)
+        metadata = None
+
+        async def metadata_is_available() -> bool:
+            nonlocal metadata
+            metadata = await ctx.client.get_session_metadata(session.session_id)
+            return metadata is not None
+
+        await wait_for_condition(
+            metadata_is_available,
+            timeout=10.0,
+            timeout_message="Timed out waiting for session metadata to persist.",
+        )
 
         # Get metadata for the session we just created
-        metadata = await ctx.client.get_session_metadata(session.session_id)
         assert metadata is not None
         assert metadata.session_id == session.session_id
         assert isinstance(metadata.start_time, datetime)
@@ -679,27 +687,36 @@ class TestSessions:
         """Test that setModel passes reasoningEffort and it appears in the model_change event."""
         import asyncio
 
-        session = await ctx.client.create_session(
-            on_permission_request=PermissionHandler.approve_all
-        )
+        isolated_ctx = E2ETestContext()
+        await isolated_ctx.setup()
+        try:
+            await isolated_ctx.configure_for_test(
+                "session", "should_set_model_with_reasoningeffort"
+            )
+            session = await isolated_ctx.client.create_session(
+                on_permission_request=PermissionHandler.approve_all
+            )
 
-        model_change_event = asyncio.get_event_loop().create_future()
+            model_change_event = asyncio.get_event_loop().create_future()
 
-        def on_event(event):
-            if model_change_event.done():
-                return
+            def on_event(event):
+                if model_change_event.done():
+                    return
 
-            match event.data:
-                case SessionModelChangeData() as data:
-                    model_change_event.set_result(data)
+                match event.data:
+                    case SessionModelChangeData() as data:
+                        model_change_event.set_result(data)
 
-        session.on(on_event)
+            session.on(on_event)
 
-        await session.set_model("gpt-4.1", reasoning_effort="high")
+            await session.set_model("gpt-5.4", reasoning_effort="high")
 
-        data = await asyncio.wait_for(model_change_event, timeout=30)
-        assert data.new_model == "gpt-4.1"
-        assert data.reasoning_effort == "high"
+            data = await asyncio.wait_for(model_change_event, timeout=30)
+            assert data.new_model == "gpt-5.4"
+            assert data.reasoning_effort == "high"
+            await session.disconnect()
+        finally:
+            await isolated_ctx.teardown()
 
     async def test_should_accept_blob_attachments(self, ctx: E2ETestContext):
         # Write the image to disk so the model can view it

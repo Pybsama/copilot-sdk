@@ -8,8 +8,8 @@ import (
 )
 
 // TestInProcessFfiE2E is a smoke test for the in-process (FFI) transport. It
-// starts a client that loads the native runtime cdylib next to the resolved CLI
-// entrypoint, lets the native host spawn the worker, performs a purely local
+// starts a client that loads the native runtime cdylib directly, lets the native
+// host construct the server, performs a purely local
 // "ping" round-trip through the runtime, and stops cleanly. No auth or replay
 // proxy is involved, so it needs no snapshot.
 //
@@ -26,7 +26,10 @@ func TestInProcessFfiE2E(t *testing.T) {
 		t.Skip("in-process FFI smoke test runs only under the inprocess transport cell")
 	}
 
-	cliPath := testharness.CLIPath(t)
+	cliPath := testharness.CLIPath()
+	if cliPath == "" {
+		t.Fatal("CLI not found. Run 'npm install' in the nodejs directory first.")
+	}
 	t.Setenv("COPILOT_CLI_PATH", cliPath)
 
 	t.Run("should start and connect over in-process FFI", func(t *testing.T) {

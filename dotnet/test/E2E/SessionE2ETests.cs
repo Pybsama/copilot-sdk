@@ -17,7 +17,7 @@ public class SessionE2ETests(E2ETestFixture fixture, ITestOutputHelper output) :
     [Fact]
     public async Task ShouldCreateAndDisconnectSessions()
     {
-        var session = await CreateSessionAsync(new SessionConfig { Model = "claude-sonnet-4.5" });
+        var session = await CreateSessionAsync(new SessionConfig { Model = "claude-sonnet-5" });
 
         Assert.Matches(@"^[a-f0-9-]+$", session.SessionId);
 
@@ -228,7 +228,7 @@ public class SessionE2ETests(E2ETestFixture fixture, ITestOutputHelper output) :
     [Fact]
     public async Task Should_Reject_Resuming_Active_Session_Using_The_Same_Client()
     {
-        var session1 = await CreateSessionAsync();
+        await using var session1 = await CreateSessionAsync();
         var sessionId = session1.SessionId;
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -611,14 +611,17 @@ public class SessionE2ETests(E2ETestFixture fixture, ITestOutputHelper output) :
     [Fact]
     public async Task Should_Set_Model_With_ReasoningEffort()
     {
-        var session = await CreateSessionAsync();
+        await using var isolatedCtx = await E2ETestContext.CreateAsync();
+        await isolatedCtx.ConfigureForTestAsync("session", nameof(Should_Set_Model_With_ReasoningEffort));
+        var isolatedClient = isolatedCtx.CreateClient();
+        await using var session = await isolatedCtx.CreateSessionAsync(isolatedClient);
 
         var modelChangedTask = TestHelper.GetNextEventOfTypeAsync<SessionModelChangeEvent>(session);
 
-        await session.SetModelAsync("gpt-4.1", "high");
+        await session.SetModelAsync("gpt-5.4", "high");
 
         var modelChanged = await modelChangedTask;
-        Assert.Equal("gpt-4.1", modelChanged.Data.NewModel);
+        Assert.Equal("gpt-5.4", modelChanged.Data.NewModel);
         Assert.Equal("high", modelChanged.Data.ReasoningEffort);
     }
 
@@ -983,8 +986,9 @@ public class SessionE2ETests(E2ETestFixture fixture, ITestOutputHelper output) :
     [Trait(E2ETestTraits.Backend, E2ETestTraits.SelfConfiguredBackend)]
     public async Task Should_Resume_Session_With_Custom_Provider()
     {
-        var session = await CreateSessionAsync();
+        await using var session = await CreateSessionAsync();
         var sessionId = session.SessionId;
+        await SuspendAndUntrackSessionForResumeAsync(session);
 
         var session2 = await ResumeSessionAsync(sessionId, new ResumeSessionConfig
         {
@@ -1006,7 +1010,5 @@ public class SessionE2ETests(E2ETestFixture fixture, ITestOutputHelper output) :
         {
             // disconnect may fail since the provider is fake
         }
-
-        await session.DisposeAsync();
     }
 }

@@ -8,6 +8,20 @@ To use the SDK, you'll need:
 
 - Node.js ^20.19.0 or >=22.12.0
 
+The SDK uses an optional `@github/copilot-sdk-<platform>` package containing the
+Copilot CLI runtime for the host platform. These packages are built from
+verified `github/copilot-cli` release assets when the SDK is published, so
+starting the SDK performs no runtime download. Set `COPILOT_CLI_PATH` to use an
+existing installation instead.
+
+The checked-in release pin is `copilotCliVersion` in `package.json`. Run
+`npm run set:cli-version -- <version>` to update it and regenerate the compiled
+metadata in `src/cliVersion.ts`. Packaging verifies release assets against the
+release's `SHA256SUMS.txt`.
+
+`npm run pack:release` builds the main package and all platform packages. Set
+`COPILOT_CLI_DOWNLOAD_BASE_URL` to use a release mirror while packaging.
+
 ## Installation
 
 ```bash
@@ -22,6 +36,7 @@ Try the interactive chat sample (from the repo root):
 cd nodejs
 npm ci
 npm run build
+export COPILOT_CLI_PATH="$(npm run --silent prepare:runtime -- --print-path)"
 cd samples
 npm install
 npm start
@@ -36,7 +51,7 @@ import { CopilotClient, approveAll } from "@github/copilot-sdk";
 const client = new CopilotClient();
 await client.start();
 
-// Create a session (onPermissionRequest is optional; approveAll allows every tool)
+// approveAll is only valid when managed settings are disabled.
 const session = await client.createSession({
     model: "gpt-5",
     onPermissionRequest: approveAll,
@@ -71,6 +86,12 @@ await using session = await client.createSession({
 // session is automatically disconnected when leaving scope
 ```
 
+When targeting MCP tools configured through `mcpServers`, remember the runtime
+tool name is `<server-key>-<tool-name>`. For `availableTools` and
+`excludedTools`, prefer `new ToolSet().addMcp("<server-key>-<tool-name>")` or
+the raw `mcp:<server-key>-<tool-name>` form. For `customAgents[].tools` and
+`defaultAgent.excludedTools`, use `<server-key>-<tool-name>` directly.
+
 ## API Reference
 
 ### CopilotClient
@@ -89,6 +110,7 @@ new CopilotClient(options?: CopilotClientOptions)
     - `RuntimeConnection.forUri(url, { connectionToken? })` — connect to an already-running runtime (mutually exclusive with `gitHubToken`/`useLoggedInUser`). There is no top-level `cliUrl` shortcut; use this factory for URL-based connections.
     - `RuntimeConnection.forInProcess()` — host the runtime in-process over its native C ABI (FFI). **Experimental.** Because the runtime shares this process, `env`, `telemetry`, and `workingDirectory` are rejected with this transport; set them on the host process instead.
     - The child-process transports (`forStdio`/`forTcp`) also accept a per-connection `env`. Set it there or via the top-level `env` option — not both (setting both throws).
+    - Managed child-process connections materialize the bundled `copilot-runtime` and adjacent `runtime.node`, then launch the wrapper by default. An explicit connection `path` or `COPILOT_CLI_PATH` overrides the bundled runtime.
 - `mode?: "empty" | "copilot-cli"` - Defaulting strategy. Use `"empty"` for multi-user server mode; defaults to `"copilot-cli"`.
 - `workingDirectory?: string` - Working directory for the runtime process (default: current process cwd).
 - `baseDirectory?: string` - Base directory for Copilot data (session state, config, etc.). Sets `COPILOT_HOME` on the spawned runtime. When not set, the runtime defaults to `~/.copilot`. Ignored when connecting via `RuntimeConnection.forUri`.
@@ -125,15 +147,32 @@ Create a new conversation session.
 
 - `sessionId?: string` - Custom session ID.
 - `model?: string` - Model to use ("gpt-5", "claude-sonnet-4.5", etc.). **Required when using custom provider.**
-- `reasoningEffort?: "low" | "medium" | "high" | "xhigh"` - Reasoning effort level for models that support it. Use `listModels()` to check which models support this option.
+- `capi?: CapiSessionOptions` - Copilot API options. With `model: "auto"`, set `autoTier` to `"efficiency"`, `"balance"`, or `"intelligence"` to choose a routing preference. Requires a runtime with Auto tier support and V2 Auto routing. Omission preserves default behavior. See [Auto tier persistence](../docs/features/session-persistence.md#auto-tier-persistence) for resume semantics.
+- `reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max"` - Reasoning effort level for models that support it. Use `listModels()` to check which models support this option.
 - `tools?: Tool[]` - Custom tools exposed to the CLI. Tools without `handler` are declaration-only and must be resolved via pending tool-call RPCs.
 - `systemMessage?: SystemMessageConfig` - System message customization (see below)
 - `infiniteSessions?: InfiniteSessionConfig` - Configure automatic context compaction (see below)
+- `workingDirectory?: string` - Working directory for the session (default: runtime process cwd).
+- `enableSessionStore?: boolean` - Enables the cross-session store for search and retrieval across sessions. When unset in `"copilot-cli"` mode, the runtime default applies (enabled). In `"empty"` mode, defaults to disabled.
+- `gitHubTokenProvider?: GitHubTokenProvider` - Acquires rotating, session-scoped GitHub tokens. Token results require a positive `expiresIn` value in seconds remaining when the callback completes; production tokens typically last eight hours. Cannot be combined with `gitHubToken`.
 - `provider?: ProviderConfig` - Custom API provider configuration (BYOK - Bring Your Own Key). See [Custom Providers](#custom-providers) section.
-- `onPermissionRequest?: PermissionHandler` - Optional handler called before each tool execution to approve or deny it. When omitted, permission requests are emitted as events and left pending for manual resolution. Use `approveAll` to allow everything, or provide a custom function for fine-grained control. See [Permission Handling](#permission-handling) section.
-- `onUserInputRequest?: UserInputHandler` - Handler for user input requests from the agent. Enables the `ask_user` tool. See [User Input Requests](#user-input-requests) section.
+- `onPermissionRequest?: PermissionHandler` - Optional handler called before each tool execution to approve or deny it. When omitted, permission requests are emitted as events and left pending for manual resolution. `approveAll` approves requests when managed settings are disabled and throws when `enableManagedSettings` is true. Custom handlers can inspect `managedApprovalRequired` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
+- `onUserInputRequest?: UserInputHandler` - Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.
+- `askUserVariant?: "legacy" | "elicitation"` - Selects the model-facing `ask_user` tool shape when creating or cold-resuming a session. Defaults to `"legacy"`; use `"elicitation"` with `onElicitationRequest`.
 - `onElicitationRequest?: ElicitationHandler` - Handler for elicitation requests dispatched by the server. Enables this client to present form-based UI dialogs on behalf of the agent or other session participants. See [Elicitation Requests](#elicitation-requests) section.
 - `hooks?: SessionHooks` - Hook handlers for session lifecycle events. See [Session Hooks](#session-hooks) section.
+
+```typescript
+const session = await client.createSession({
+    gitHubTokenProvider: async ({ host }) => ({
+        kind: "token",
+        accessToken: await acquireTokenForHost(host),
+        expiresIn: 8 * 60 * 60,
+    }),
+});
+```
+
+Initial acquisition runs during session creation or resume. Cancellation, provider errors, and invalid token responses reject that operation instead of falling back to ambient authentication. Idle sessions refresh only before their next credential-consuming operation; there is no background refresh timer.
 
 ##### `resumeSession(sessionId: string, config?: ResumeSessionConfig): Promise<CopilotSession>`
 
@@ -855,7 +894,7 @@ An `onPermissionRequest` handler is optional when you create or resume a session
 
 ### Approve All (simplest)
 
-Use the built-in `approveAll` helper to allow every tool call without any checks:
+Use the built-in `approveAll` helper when managed settings are disabled:
 
 ```typescript
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
@@ -866,9 +905,11 @@ const session = await client.createSession({
 });
 ```
 
+When `enableManagedSettings` is true for the session, `approveAll` throws. Use a custom handler for managed sessions; request-level `managedApprovalRequired` remains available for human-facing confirmation logic.
+
 ### Custom Permission Handler
 
-Provide your own function to inspect each request and apply custom logic:
+Provide your own function to inspect each request and apply custom logic. Check `managedApprovalRequired` before any automatic approval:
 
 ```typescript
 import type { PermissionRequest, PermissionRequestResult } from "@github/copilot-sdk";
@@ -876,6 +917,11 @@ import type { PermissionRequest, PermissionRequestResult } from "@github/copilot
 const session = await client.createSession({
     model: "gpt-5",
     onPermissionRequest: (request: PermissionRequest, invocation): PermissionRequestResult => {
+        if ("managedApprovalRequired" in request && request.managedApprovalRequired === true) {
+            // Leave the request pending for the host's human-facing confirmation flow.
+            return { kind: "no-result" };
+        }
+
         // request.kind — what type of operation is being requested:
         //   "shell"       — executing a shell command
         //   "write"       — writing or editing a file
@@ -905,15 +951,15 @@ const session = await client.createSession({
 
 The handler must return one of the `PermissionDecision` shapes (or `{ kind: "no-result" }`). Approval scopes are present-tense — they describe the decision to apply, not the outcome reported back on session events:
 
-| Kind                     | Meaning                                                                                      | Extra fields                                                            |
-| ------------------------ | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `"approve-once"`         | Allow this single request                                                                    | —                                                                       |
-| `"approve-for-session"`  | Allow this request and remember the approval for the rest of the session                     | `approval?` (rule to remember), `domain?` (for URL approvals)           |
-| `"approve-for-location"` | Allow this request and persist the approval for this project location (git root or cwd)      | `approval` (rule to persist), `locationKey` (location to persist under) |
-| `"approve-permanently"`  | Allow this request and persist the approval across sessions (currently used for URL domains) | `domain` (URL domain to approve)                                        |
-| `"reject"`               | Deny the request                                                                             | `feedback?` (optional string surfaced to the agent)                     |
-| `"user-not-available"`   | Deny the request because no user is available to confirm it                                  | —                                                                       |
-| `"no-result"`            | Leave the request unanswered (only valid with protocol v1; rejected by protocol v2 servers)  | —                                                                       |
+| Kind                     | Meaning                                                                                        | Extra fields                                                            |
+| ------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `"approve-once"`         | Allow this single request                                                                      | —                                                                       |
+| `"approve-for-session"`  | Allow this request and remember the approval for the rest of the session                       | `approval?` (rule to remember), `domain?` (for URL approvals)           |
+| `"approve-for-location"` | Allow this request and persist the approval for this project location (git root or cwd)        | `approval` (rule to persist), `locationKey` (location to persist under) |
+| `"approve-permanently"`  | Allow this request and persist the approval across sessions (currently used for URL domains)   | `domain` (URL domain to approve)                                        |
+| `"reject"`               | Deny the request                                                                               | `feedback?` (optional string surfaced to the agent)                     |
+| `"user-not-available"`   | Deny the request because no user is available to confirm it                                    | —                                                                       |
+| `"no-result"`            | Suppress this SDK client's response so another connected client can answer the pending request | —                                                                       |
 
 ### Resuming Sessions
 
@@ -931,7 +977,7 @@ To let a specific custom tool bypass the permission prompt entirely, set `skipPe
 
 ## User Input Requests
 
-Enable the agent to ask questions to the user using the `ask_user` tool by providing an `onUserInputRequest` handler:
+Enable the legacy question-and-answer `ask_user` tool by providing an `onUserInputRequest` handler:
 
 ```typescript
 const session = await client.createSession({
@@ -963,6 +1009,7 @@ Register an `onElicitationRequest` handler to let your client act as an elicitat
 const session = await client.createSession({
     model: "gpt-5",
     onPermissionRequest: approveAll,
+    askUserVariant: "elicitation",
     onElicitationRequest: async (context) => {
         // context.sessionId - Session that triggered the request
         // context.message - Description of what information is needed
@@ -983,6 +1030,9 @@ const session = await client.createSession({
 // The session now reports elicitation capability
 console.log(session.capabilities.ui?.elicitation); // true
 ```
+
+Set `askUserVariant: "elicitation"` to expose the structured form as the model's
+`ask_user` tool. Omit it to retain the legacy SDK behavior.
 
 When `onElicitationRequest` is provided, the SDK sends `requestElicitation: true` during session create/resume, which enables `session.capabilities.ui.elicitation` on the session.
 
@@ -1092,6 +1142,21 @@ try {
 } catch (error) {
     console.error("Error:", error.message);
 }
+```
+
+## Development
+
+From the repository root:
+
+```bash
+cd test/harness
+npm ci
+```
+
+```bash
+cd nodejs
+npm ci
+npm test
 ```
 
 ## License
